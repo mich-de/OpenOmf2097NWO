@@ -1,0 +1,19 @@
+diff --git a/src/console/console.c b/src/console/console.c
+--- a/src/console/console.c
++++ b/src/console/console.c
+@@ -331,7 +331,14 @@
+ static size_t get_stdin_line(char *line, size_t size) {
++#if defined(__EMSCRIPTEN__)
++    // Web build: stdin never receives data in the browser, and read(0, ...)
++    // would block forever inside ASYNCIFY. Console input arrives as SDL key
++    // events instead, so nothing is lost by skipping the poll here.
++    (void)line;
++    (void)size;
++    return 0;
++#elif !defined(WIN32) && !defined(_WIN32)
+-#if !defined(WIN32) && !defined(_WIN32)
+     ssize_t n = read(0, line, size);
+     if(n > 0) {
+         line[n - 1] = '\0';
+         return (size_t)(n - 1);
+     }

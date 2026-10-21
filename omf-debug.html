@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>omf debug</title>
+<style>body{background:#000;color:#0f0;font:12px monospace;white-space:pre-wrap}</style>
+</head>
+<body>
+<pre id="log"></pre>
+<canvas id="canvas" width="1" height="1"></canvas>
+<script>
+(() => {
+  "use strict";
+  const el = document.getElementById("log");
+  const lines = [];
+  const show = () => { el.textContent = lines.slice(-80).join("\n"); document.title = "omf: " + (lines.at(-1) || "no output yet").slice(0, 80); };
+  window.onerror = (m, s, l) => { lines.push("JS ERROR " + m + " @" + s + ":" + l); show(); };
+  const log = (t) => { lines.push(String(t)); show(); };
+
+  const Module = {
+    canvas: document.getElementById("canvas"),
+    ENV: { OPENOMF_RESOURCE_PATH: "/", OPENOMF_STATE_PATH: "/", OPENOMF_CONFIG_PATH: "/" },
+    locateFile: (p) => "wasm/" + p,
+    print: log,
+    printErr: (t) => log("E " + t),
+    onRuntimeInitialized: () => log("== RUNTIME INITIALIZED =="),
+    onExit: (c) => log("== EXIT code " + c + " =="),
+    onAbort: (why) => log("== ABORT " + why + " =="),
+  };
+  window.Module = Module;
+  const s = document.createElement("script");
+  s.src = "wasm/openomf.js";
+  s.onerror = () => log("COULD NOT LOAD wasm/openomf.js");
+  document.body.appendChild(s);
+  setTimeout(() => log("== TIMEOUT canvas " + document.getElementById("canvas").width + "x" + document.getElementById("canvas").height + " =="), 20000);
+})();
+</script>
+</body>
+</html>

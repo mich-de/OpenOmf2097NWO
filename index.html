@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>One Must Fall 2097 NWO</title>
+<meta name="description" content="One Must Fall 2097 NWO: a satirical edition of the 1994 robot fighter (Epic MegaGames, freeware) with 24 pilots from today's world stage. The OpenOMF engine compiled to WebAssembly: no emulator, no plugins.">
+<meta name="theme-color" content="#00005f">
+<link rel="icon" href="assets/logo.png">
+<style>
+  /* The launcher keeps the game's own NetArena look: NETMEGA.PCX background,
+     the 2097 logo, and lettering in the game's bitmap fonts. */
+  @font-face {
+    font-family: "OMF 2097 Big";
+    src: url(assets/fonts/omf2097-big.woff2) format("woff2");
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "OMF 2097 NetArena";
+    src: url(assets/fonts/omf2097-netarena.woff2) format("woff2");
+    font-display: swap;
+  }
+  :root { --navy: #00005f; --red: #670000; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+  body { font-family: "OMF 2097 Big", monospace; color: #a7a7ff; }
+
+  #launcher {
+    position: fixed; inset: 0; z-index: 10;
+    display: grid; place-items: center; background: #000;
+    transition: opacity .5s steps(5), visibility 0s .5s;
+  }
+  #launcher.off { opacity: 0; visibility: hidden; }
+  #stage, #hud { grid-area: 1 / 1; }
+  /* Stage is exactly as tall as the art, so the band colours (rows 0-38 navy,
+     39-162 red, 163-199 navy of 200) continue the image seamlessly. */
+  #stage {
+    width: 100vw; height: min(100vh, 62.5vw);
+    display: grid; place-items: center;
+    background: linear-gradient(var(--navy) 0 19.5%, var(--red) 19.5% 81.5%, var(--navy) 81.5%);
+  }
+  #art {
+    height: 100%; aspect-ratio: 8 / 5;
+    background: url(assets/netmega.png) 0 0 / 100% 100% no-repeat;
+    image-rendering: pixelated;
+  }
+  /* HUD on top of the art 1:1; --u is one pixel of the 320x200 art. */
+  #hud {
+    position: relative; width: min(100vw, 160vh); aspect-ratio: 8 / 5;
+    container-type: size; --u: calc(100cqw / 320);
+    display: grid; place-items: center;
+  }
+  #logo {
+    position: absolute; left: calc(200 * var(--u)); top: calc(42 * var(--u));
+    width: calc(108 * var(--u)); height: auto;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 0 calc(3 * var(--u)) rgba(0, 0, 0, .55));
+  }
+  #menu {
+    width: calc(180 * var(--u));
+    padding: calc(6 * var(--u));
+    background: rgba(0, 0, 83, .88);
+    outline: calc(1 * var(--u)) solid #000077;
+    text-align: center;
+  }
+  #menu h2 {
+    margin: 0 0 calc(4 * var(--u));
+    font: calc(8 * var(--u)) "OMF 2097 Big";
+    color: #cf5b00; letter-spacing: 0;
+  }
+  #start, #dos {
+    display: block; width: 100%; margin: 0 auto;
+    padding: calc(3 * var(--u)) 0 calc(4 * var(--u));
+    border: 0; background: none; cursor: pointer;
+    font: calc(8 * var(--u)) "OMF 2097 Big";
+    color: #7982c7; text-shadow: 0 calc(1 * var(--u)) 0 #3c3c65;
+  }
+  #start:hover, #start:focus-visible, #dos:hover, #dos:focus-visible {
+    color: #cbcbff; outline: none; text-shadow: 0 0 calc(2 * var(--u)) #cbcbff;
+  }
+  #keys {
+    margin: calc(5 * var(--u)) 0 0;
+    font: calc(6 * var(--u)) / calc(9 * var(--u)) "OMF 2097 Big";
+    color: #7982c7; text-align: left;
+  }
+  #keys b { color: #cf5b00; font-weight: normal; }
+  #status {
+    margin: calc(4 * var(--u)) 0 0;
+    font: calc(6 * var(--u)) "OMF 2097 Big"; color: #cbcbff;
+    min-height: calc(9 * var(--u));
+  }
+  /* Portrait: art becomes a banner, menu below it. */
+  @media (max-aspect-ratio: 1/1) {
+    #launcher { overflow-y: auto; background: var(--red); }
+    #stage { height: 62.5vw; }
+    #hud {
+      position: static; width: auto; aspect-ratio: auto; container-type: normal;
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      padding: 16px 16px 40px;
+    }
+    #logo { position: static; width: min(80vw, 380px); }
+    #menu { width: min(92vw, 420px); padding: 12px; outline-width: 1px; }
+    #menu h2 { font-size: 24px; margin-bottom: 8px; }
+    #start, #dos { font-size: 22px; padding: 8px 0; }
+    #keys { font-size: 16px; line-height: 24px; margin-top: 12px; }
+    #status { font-size: 15px; min-height: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #launcher { transition: none; } }
+
+  /* The game draws into this canvas at the screen's real pixels: the engine sizes its
+     drawing buffer from this CSS box (SDL resizable + high DPI), so the stage must have its
+     size even while it is still hidden behind the launcher. */
+  #stage-game { position: fixed; inset: 0; visibility: hidden; background: #000; }
+  #stage-game.on { visibility: visible; }
+  #canvas {
+    position: absolute; inset: 0; margin: auto;
+    width: 100%; height: 100%; object-fit: contain;
+    image-rendering: pixelated; outline: none;
+  }
+  /* What went wrong, over the game: shown on errors, and always with ?debug=1. */
+  #diag {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 20; max-height: 50vh; overflow: auto;
+    margin: 0; padding: 6px 8px; background: rgba(0, 0, 0, .85); color: #c8c8ff;
+    font: 11px/1.35 monospace; white-space: pre-wrap; word-break: break-all;
+  }
+  /* Floating buttons: full screen, and back when the game has quit. */
+  #tools {
+    position: fixed; z-index: 11;
+    top: calc(env(safe-area-inset-top) + 10px); left: calc(env(safe-area-inset-left) + 10px);
+    display: flex; gap: 6px; transition: opacity .3s;
+  }
+  #tools.idle { opacity: 0; pointer-events: none; }
+  #tools[hidden] { display: none; }
+  .tool {
+    padding: 6px 10px; border: 1px solid #000077; background: rgba(0, 0, 83, .85);
+    color: #7982c7; font: 14px "OMF 2097 Big"; cursor: pointer;
+  }
+  .tool:hover, .tool:focus-visible { color: #cbcbff; outline: none; }
+
+  /* Touch controls (phones/tablets): pixel art drawn at native size, --t px per art pixel. */
+  #touch { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  #touch[hidden] { display: none; }
+  #touch canvas {
+    display: block; pointer-events: auto; opacity: .85;
+    width: calc(var(--w) * var(--t)); height: calc(var(--h) * var(--t));
+    image-rendering: pixelated;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  }
+  #pad { position: absolute; left: calc(env(safe-area-inset-left) + 10px); bottom: calc(env(safe-area-inset-bottom) + 10px); }
+  #sys { position: absolute; right: calc(env(safe-area-inset-right) + 10px); top: calc(env(safe-area-inset-top) + 10px); }
+  #fight {
+    position: absolute; right: calc(env(safe-area-inset-right) + 10px); bottom: calc(env(safe-area-inset-bottom) + 10px);
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+</style>
+</head>
+<body>
+
+<main id="launcher">
+  <div id="stage" aria-hidden="true"><div id="art"></div></div>
+  <div id="hud">
+    <h1><img id="logo" src="assets/logo.png" width="306" height="192" alt="One Must Fall 2097"></h1>
+    <section id="menu" aria-label="Main menu">
+      <h2>REGULAR GAME</h2>
+      <button id="start" type="button">PLAY (WASM, NO EMULATOR)</button>
+      <p id="keys">
+        <b>P1</b> ARROWS MOVE &middot; ENTER PUNCH &middot; RSHIFT KICK<br>
+        <b>P2</b> WASD + QEZC &middot; LSHIFT PUNCH &middot; LCTRL KICK<br>
+        ESC MENU &middot; ENTER CONFIRM
+      </p>
+      <p id="status" role="status"></p>
+    </section>
+  </div>
+</main>
+
+<pre id="diag" hidden></pre>
+<div id="stage-game">
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+</div>
+<div id="tools" hidden>
+  <button id="fs" class="tool" type="button" title="Full screen (F11)">FULL SCREEN</button>
+  <button id="back" class="tool" type="button" hidden>BACK</button>
+</div>
+<div id="touch" hidden>
+  <div id="sys"><canvas id="esc" aria-hidden="true"></canvas></div>
+  <canvas id="pad" aria-hidden="true"></canvas>
+  <div id="fight"><canvas id="kick" aria-hidden="true"></canvas><canvas id="punch" aria-hidden="true"></canvas></div>
+</div>
+
+<script src="netfont.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const status = (s) => { $("status").textContent = s; };
+
+  // Diagnostics: errors, and with ?debug=1 the GPU, sizes, quality and the engine's log
+  // (release builds write it to /openomf.log only), in a panel over the game.
+  const debug = new URLSearchParams(location.search).has("debug");
+  const problems = [];
+  let renderer = "?";
+  const engineLog = () => {
+    // the engine keeps it in SDL's preferences folder
+    for (const path of ["/libsdl/OpenOMF/openomf.log", "/openomf.log"]) {
+      try { return window.Module.FS.readFile(path, { encoding: "utf8" }); } catch (e) { /* not there */ }
+    }
+    return "";
+  };
+  function showDiag(title) {
+    const canvas = $("canvas"), q = window.Module || {};
+    const lines = [
+      title,
+      "GPU: " + renderer,
+      "screen " + screen.width + "x" + screen.height + " @" + devicePixelRatio + ", canvas " + canvas.width + "x" + canvas.height,
+      "quality: framebuffer up to " + q.omfMaxScale + "x, robots " + q.omfSpriteScale + "x, " +
+        (q.omfFps ? q.omfFps + " fps" : "fps: measuring"),
+      ...problems.slice(-8),
+      "--- engine log ---",
+      ...engineLog().trim().split("\n").slice(-25),
+      ...(window.__omflog || []).filter((l) => l.startsWith("E ") && l.trim() !== "E").slice(-8),
+    ];
+    $("diag").textContent = lines.join("\n");
+    $("diag").hidden = false;
+  }
+  const problem = (what) => {
+    problems.push(what);
+    if (started) showDiag("THE GAME STOPPED: tell me what this says (or send a screenshot)");
+  };
+  addEventListener("error", (e) => problem("error: " + e.message + " @" + (e.filename || "") + ":" + (e.lineno || "")));
+  addEventListener("unhandledrejection", (e) => problem("rejected: " + (e.reason && (e.reason.stack || e.reason))));
+
+  let started = false;
+  $("start").addEventListener("click", async () => {
+    if (started) return;
+    started = true;
+    // Full screen, in landscape where the browser allows locking it (Android does, in full
+    // screen only). Asked first, while the tap still counts as the player's gesture.
+    document.documentElement.requestFullscreen?.({ navigationUI: "hide" })
+      .then(() => screen.orientation?.lock?.("landscape"))
+      .catch(() => { /* not allowed here: play in the window */ });
+    $("start").disabled = true;
+    status("LOADING WASM ENGINE...");
+
+    // The ETag trick: a new cache entry after every deploy, so returning
+    // players never keep an old engine or an old data pack.
+    let v = "";
+    try {
+      const r = await fetch("wasm/openomf.wasm", { method: "HEAD" });
+      v = r.ok && r.headers.get("etag") ? "?v=" + encodeURIComponent(r.headers.get("etag")) : "";
+    } catch (e) { /* offline or filtered: load without version pin */ }
+
+    const Module = {
+      canvas: $("canvas"),
+      // How hard the GPU works: the framebuffer scale and the robots' sprite detail,
+      // picked for this device (see quality()) and lowered while playing if it can't keep up.
+      omfMaxScale: quality().maxScale,
+      omfSpriteScale: quality().spriteScale,
+      // Read-only game data at /, saved scores and config in /state.
+      ENV: { OPENOMF_RESOURCE_PATH: "/", OPENOMF_STATE_PATH: "/", OPENOMF_CONFIG_PATH: "/" },
+      locateFile: (p) => "wasm/" + p + v,
+      monitorRunDependencies: (left) => {
+        if (left > 0) status("LOADING GAME DATA... (" + left + ")");
+      },
+      print: (t) => { (window.__omflog = window.__omflog || []).push(String(t)); console.log("[omf]", t); },
+      printErr: (t) => { (window.__omflog = window.__omflog || []).push("E " + t); console.warn("[omf]", t); },
+      // The engine's settings (the VIDEO menu's too), scores and log live in SDL's preferences
+      // folder: kept in the browser (IndexedDB), so a setting chosen once is used every time.
+      // (preRun runs before Module.FS is set: the engine script's own globals, FS and IDBFS)
+      preRun: [() => {
+        const FS = window.FS;
+        try { FS.mkdir("/libsdl"); } catch (e) { /* exists */ }
+        try {
+          FS.mount(window.IDBFS, {}, "/libsdl");
+          window.addRunDependency("saved-settings");
+          FS.syncfs(true, () => window.removeRunDependency("saved-settings"));
+        } catch (e) { problems.push("settings are not kept: " + e); }
+      }],
+      onRuntimeInitialized: () => {
+        status("RUNTIME READY");
+        let saving = false;
+        const save = () => {
+          if (saving) return;
+          saving = true;
+          Module.FS.syncfs(false, () => { saving = false; });
+        };
+        setInterval(save, 5000);
+        addEventListener("pagehide", save);
+        document.addEventListener("visibilitychange", () => { if (document.hidden) save(); });
+      },
+      onExit: (c) => {
+        (window.__omflog = window.__omflog || []).push("EXIT code " + c);
+        status("GAME CLOSED (code " + c + ")");
+        $("back").hidden = false;
+        $("tools").classList.remove("idle");
+        if (c !== 0) problem("the engine exited with code " + c);
+      },
+      onAbort: (why) => { status("FAILED: " + why); problem("abort: " + why); },
+    };
+    window.Module = Module;
+
+    const s = document.createElement("script");
+    s.src = "wasm/openomf.js";
+    s.onerror = () => status("COULD NOT LOAD wasm/openomf.js");
+    document.body.appendChild(s);
+
+    // Watch the frame rate while playing: below 40 fps for 3 seconds, draw lighter, by as much
+    // as the frame rate says (at 20 fps, about half the framebuffer scale).
+    // The engine re-reads omfMaxScale every second; sprite detail follows on the next load.
+    const watchFrameRate = () => {
+      let last = performance.now(), frames = 0, slow = 0, from = last;
+      const step = (now) => {
+        if (now - last < 1000) {
+          frames++;
+        } else { // a hidden tab pauses frames: start measuring again
+          from = now;
+          frames = 0;
+        }
+        last = now;
+        if (now - from >= 3000) {
+          const fps = frames * 1000 / (now - from);
+          Module.omfFps = Math.round(fps);
+          slow = fps < 40 ? slow + 1 : 0;
+          if (slow >= 1 && Module.omfMaxScale > 1) {
+            const scale = Module.omfMaxScale;
+            Module.omfMaxScale = Math.max(1, Math.min(scale - 1, Math.floor(scale * fps / 45)));
+            Module.omfSpriteScale = Module.omfMaxScale >= 4 ? 4 : Module.omfMaxScale >= 2 ? 2 : 1;
+            slow = -1; // give the lighter setting a window to settle
+          }
+          from = now;
+          frames = 0;
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+
+    if (debug) setInterval(() => showDiag("DEBUG (?debug=1)"), 1000);
+
+    const on = () => {
+      setTimeout(watchFrameRate, 8000); // loading the first scene is not a frame rate
+      $("launcher").classList.add("off");
+      $("stage-game").classList.add("on");
+      $("tools").hidden = false;
+      if (touch) showTouch();
+      $("canvas").focus();
+    };
+    const check = setInterval(() => {
+      if ($("canvas").width > 0) { on(); clearInterval(check); }
+    }, 200);
+  });
+
+  // Full screen, and keep the buttons out of the way while the mouse rests.
+  $("fs").addEventListener("click", () => {
+    const d = document;
+    if (d.fullscreenElement) d.exitFullscreen();
+    else d.documentElement.requestFullscreen?.();
+  });
+  $("back").addEventListener("click", () => location.reload());
+
+  let idle;
+  const wake = () => {
+    $("tools").classList.remove("idle");
+    clearTimeout(idle);
+    idle = setTimeout(() => $("tools").classList.add("idle"), 2500);
+  };
+  document.addEventListener("mousemove", wake);
+  wake();
+
+  // Arrows and space scroll the page otherwise.
+  document.addEventListener("keydown", (e) => {
+    if ($("stage-game").classList.contains("on") &&
+        ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "PageUp", "PageDown"].includes(e.key)) {
+      e.preventDefault();
+    }
+  });
+
+  // ---------- touch controls ----------
+  // The engine reads SDL2 keyboard events, so the pad synthesises the same DOM keys
+  // as the keyboard: arrows move, Enter punches, Right Shift kicks, Esc opens the menu.
+  const KEY = {
+    up: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
+    down: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
+    left: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
+    right: { key: "ArrowRight", code: "ArrowRight", vk: 39 },
+    enter: { key: "Enter", code: "Enter", vk: 13 },
+    esc: { key: "Escape", code: "Escape", vk: 27 },
+    rShift: { key: "Shift", code: "ShiftRight", vk: 16, location: 2 },
+  };
+  // Eight directions clockwise from "right" (screen y grows downwards). A diagonal holds two
+  // arrows, as on a keyboard, so rolling from Down to Down-Left only adds Left: the game never
+  // sees the pad pass through neutral in the middle of a special move.
+  const DIR_KEYS = [[KEY.right], [KEY.down, KEY.right], [KEY.down], [KEY.down, KEY.left], [KEY.left], [KEY.up, KEY.left], [KEY.up], [KEY.up, KEY.right]];
+  const DIR_ARMS = [["R"], ["D", "R"], ["D"], ["D", "L"], ["L"], ["U", "L"], ["U"], ["U", "R"]];
+  // Where each direction starts, in degrees clockwise from "right". The down diagonals (crouch
+  // block, quarter circles) get 52°, the up ones (jumps) 45°, the straight directions what is left.
+  const DIR_FROM = [340, 18, 70, 110, 162, 200, 245, 295];
+  const PRESSED_FILL = "#3c3c65";
+  const { C, textW, drawText } = window.NetFont;
+  const touchQuery = new URLSearchParams(location.search).get("touch");
+  const touch = touchQuery !== null ? touchQuery !== "0" : matchMedia("(pointer: coarse)").matches;
+  const touchEl = $("touch");
+
+  // The quality level: maximum detail (framebuffer 6x, robots 4x), lowered while playing only
+  // if the frame rate can't keep up, and low where WebGL runs in software.
+  // ?quality=low|mid|high forces one.
+  let chosenQuality = null;
+  function quality() {
+    if (chosenQuality) return chosenQuality;
+    const levels = { low: { maxScale: 2, spriteScale: 1 }, mid: { maxScale: 3, spriteScale: 2 },
+                     high: { maxScale: 6, spriteScale: 4 } };
+    let name = new URLSearchParams(location.search).get("quality");
+    if (!levels[name]) {
+      try {
+        const gl = document.createElement("canvas").getContext("webgl2");
+        const info = gl && gl.getExtension("WEBGL_debug_renderer_info");
+        renderer = gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : "none";
+        gl?.getExtension("WEBGL_lose_context")?.loseContext(); // phones keep few contexts: give it back
+      } catch (e) { renderer = "none"; }
+      // maximum detail, except where the GPU is emulated in software: there it would not run
+      name = renderer === "none" || /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer)
+        ? "low" : "high";
+    }
+    chosenQuality = { ...levels[name] };
+    return chosenQuality;
+  }
+  const padCv = $("pad"), escCv = $("esc"), punchCv = $("punch"), kickCv = $("kick");
+  const held = new Set();
+
+  // keyCode is a read-only getter on KeyboardEvent, but the engine still reads it.
+  function fire(k, down) {
+    const ev = new KeyboardEvent(down ? "keydown" : "keyup", {
+      key: k.key, code: k.code, location: k.location || 0, bubbles: true, cancelable: true,
+    });
+    Object.defineProperty(ev, "keyCode", { get: () => k.vk });
+    Object.defineProperty(ev, "which", { get: () => k.vk });
+    $("canvas").dispatchEvent(ev);
+  }
+  function keyDown(k) {
+    if (held.has(k)) return;
+    held.add(k);
+    fire(k, true);
+    navigator.vibrate?.(8);
+  }
+  function keyUp(k) {
+    if (!held.delete(k)) return;
+    fire(k, false);
+  }
+  function releaseAll() { [...held].forEach(keyUp); }
+
+  function sizeCanvas(cv, w, h) {
+    cv.width = w;
+    cv.height = h;
+    cv.style.setProperty("--w", w);
+    cv.style.setProperty("--h", h);
+    return cv.getContext("2d");
+  }
+  const dot = (ctx, x, y, col) => { ctx.fillStyle = col; ctx.fillRect(x, y, 1, 1); };
+
+  // Cross-shaped pad, 51x51, NETSET grid inside, lit arms for the active direction.
+  function drawPad(dir) {
+    const ctx = sizeCanvas(padCv, 51, 51);
+    const arms = dir < 0 ? [] : DIR_ARMS[dir];
+    const inCross = (x, y, i) =>
+      (x >= 17 + i && x <= 33 - i && y >= i && y <= 50 - i) || (y >= 17 + i && y <= 33 - i && x >= i && x <= 50 - i);
+    const armAt = (x, y) => (y < 17 ? "U" : y > 33 ? "D" : x < 17 ? "L" : x > 33 ? "R" : "");
+    for (let y = 0; y < 51; y++) {
+      for (let x = 0; x < 51; x++) {
+        if (!inCross(x, y, 0)) continue;
+        const col = !inCross(x, y, 1) ? C.text
+          : arms.includes(armAt(x, y)) ? PRESSED_FILL
+          : x % 6 === 0 || y % 6 === 0 ? C.grid : C.panel;
+        dot(ctx, x, y, col);
+      }
+    }
+    for (const [arm, cx, cy] of [["U", 25, 9], ["D", 25, 41], ["L", 9, 25], ["R", 41, 25]]) {
+      const col = arms.includes(arm) ? C.hot : C.text;
+      for (let i = 0; i < 4; i++) {
+        for (let j = -i; j <= i; j++) {
+          if (arm === "U") dot(ctx, cx + j, cy - 2 + i, col);
+          else if (arm === "D") dot(ctx, cx + j, cy + 2 - i, col);
+          else if (arm === "L") dot(ctx, cx - 2 + i, cy + j, col);
+          else dot(ctx, cx + 2 - i, cy + j, col);
+        }
+      }
+    }
+  }
+
+  // Round button with its label underneath in the game font.
+  function drawButton(cv, label, ring, down) {
+    const lw = textW(label), w = Math.max(27, lw) + 2, h = 39;
+    const ctx = sizeCanvas(cv, w, h);
+    const cx = Math.floor(w / 2);
+    for (let y = 0; y < 27; y++) {
+      for (let x = -13; x <= 13; x++) {
+        const d = x * x + (y - 13) * (y - 13);
+        if (d > 13.5 * 13.5) continue;
+        const col = d > 12.2 * 12.2 ? (down ? C.hot : ring)
+          : down ? PRESSED_FILL
+          : (cx + x) % 6 === 0 || y % 6 === 0 ? C.grid : C.panel;
+        dot(ctx, cx + x, y, col);
+      }
+    }
+    drawText(ctx, label, Math.floor((w - lw) / 2), 29, down ? C.hot : ring, C.ink);
+  }
+
+  function drawEsc(down) {
+    const w = textW("ESC") + 6, h = 14;
+    const ctx = sizeCanvas(escCv, w, h);
+    ctx.fillStyle = down ? C.hot : C.text;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = down ? PRESSED_FILL : C.panel;
+    ctx.fillRect(1, 1, w - 2, h - 2);
+    drawText(ctx, "ESC", 3, 2, down ? C.hot : C.body, C.ink);
+  }
+
+  function bindPad() {
+    let pid = null, dir = -1;
+    const set = (d) => {
+      if (d === dir) return;
+      const now = d < 0 ? [] : DIR_KEYS[d], before = dir < 0 ? [] : DIR_KEYS[dir];
+      for (const k of now) if (!before.includes(k)) keyDown(k); // press first, then release,
+      for (const k of before) if (!now.includes(k)) keyUp(k);   // so a direction is always held
+      dir = d;
+      drawPad(dir);
+    };
+    // Is angle a inside direction i's sector, widened by slack degrees on both sides?
+    const within = (a, i, slack) => {
+      const from = DIR_FROM[i], span = (DIR_FROM[(i + 1) % 8] - from + 360) % 360;
+      return (a - from + slack + 720) % 360 < span + 2 * slack;
+    };
+    // A thumb wobbles: the current direction holds until the angle is 10° past its edge, and the
+    // centre dead zone is a little larger to enter than to leave.
+    const track = (e) => {
+      const r = padCv.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+      if (Math.hypot(dx, dy) < r.width * (dir < 0 ? 0.14 : 0.1)) { set(-1); return; }
+      const a = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+      set(dir >= 0 && within(a, dir, 10) ? dir : DIR_FROM.findIndex((_, i) => within(a, i, 0)));
+    };
+    const end = (e) => { if (e.pointerId === pid) { pid = null; set(-1); } };
+    padCv.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      pid = e.pointerId;
+      padCv.setPointerCapture(pid);
+      track(e);
+    });
+    padCv.addEventListener("pointermove", (e) => { if (e.pointerId === pid) track(e); });
+    padCv.addEventListener("pointerup", end);
+    padCv.addEventListener("pointercancel", end);
+  }
+
+  // A quick tap must still reach the game: it reads the keys once per frame, so a press and
+  // release inside one (slow) frame would be lost. Keep the key down for at least this long.
+  // A tap right after another needs the key up for a moment in between, or it reads as one press.
+  const MIN_PRESS_MS = 80, MIN_GAP_MS = 40;
+  function bindButton(cv, key, draw) {
+    let pid = null, downAt = 0, release = 0, press = 0;
+    const down = () => { press = 0; downAt = performance.now(); keyDown(key); };
+    const end = (e) => {
+      if (e.pointerId !== pid) return;
+      pid = null;
+      draw(false);
+      // a press still waiting for its gap has not reached the game yet: release after it
+      const wait = press ? MIN_GAP_MS + MIN_PRESS_MS : MIN_PRESS_MS - (performance.now() - downAt);
+      release = setTimeout(() => { release = 0; keyUp(key); }, Math.max(0, wait));
+    };
+    cv.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (pid !== null) return;
+      pid = e.pointerId;
+      cv.setPointerCapture(pid);
+      draw(true);
+      clearTimeout(press);
+      if (release) { // the last tap is still held down: let it go first
+        clearTimeout(release);
+        release = 0;
+        keyUp(key);
+        press = setTimeout(down, MIN_GAP_MS);
+      } else {
+        down();
+      }
+    });
+    cv.addEventListener("pointerup", end);
+    cv.addEventListener("pointercancel", end);
+  }
+
+  function layoutTouch() {
+    const t = Math.max(2, Math.min(5, Math.floor(Math.min(innerWidth, innerHeight) / 120)));
+    touchEl.style.setProperty("--t", t + "px");
+  }
+
+  function showTouch() {
+    const drawPunch = (down) => drawButton(punchCv, "PUNCH", C.label, down);
+    const drawKick = (down) => drawButton(kickCv, "KICK", C.text, down);
+    drawPad(-1);
+    drawEsc(false);
+    drawPunch(false);
+    drawKick(false);
+    bindPad();
+    bindButton(punchCv, KEY.enter, drawPunch);
+    bindButton(kickCv, KEY.rShift, drawKick);
+    bindButton(escCv, KEY.esc, drawEsc);
+    touchEl.addEventListener("contextmenu", (e) => e.preventDefault());
+    addEventListener("resize", layoutTouch);
+    addEventListener("blur", releaseAll);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+    layoutTouch();
+    touchEl.hidden = false;
+  }
+})();
+</script>
+</body>
+</html>

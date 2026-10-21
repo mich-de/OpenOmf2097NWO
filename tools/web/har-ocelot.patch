@@ -1,0 +1,881 @@
+diff --git a/shaders/palette.frag b/shaders/palette.frag
+index d9385f39..99bf3246 100644
+--- a/shaders/palette.frag
++++ b/shaders/palette.frag
+@@ -109,6 +109,9 @@ void main() {
+     // Palette offset and limit (for e.g. fonts)
+     if (index <= palette_limit) {
+         index = clamp(index + palette_offset, 0, palette_limit);
++    } else if (index > 256 && index < 640) {
++        // A HAR's extended colors (see har_extended.h): player 2's (offset 48) are 384 higher.
++        index += palette_offset * 8;
+     }
+ 
+     bool NO_REMAP = SPRITE_HAR_QUIRKS && index > 0x30;
+diff --git a/src/controller/ai_controller.c b/src/controller/ai_controller.c
+index 55a23b7f..ede39590 100644
+--- a/src/controller/ai_controller.c
++++ b/src/controller/ai_controller.c
+@@ -15,6 +15,11 @@
+ #include "utils/vec.h"
+ #include <math.h>
+ 
++// OCELOT is JAGUAR re-skinned, with the same moves: the AI plays it as JAGUAR.
++static int ai_har_kind(const har *h) {
++    return h->id == HAR_OCELOT ? HAR_JAGUAR : h->id;
++}
++
+ /* times thrown before we AI learns its lesson */
+ #define MAX_TIMES_THROWN 3
+ /* times shot before we AI learns its lesson */
+@@ -527,15 +532,15 @@ bool likes_tactic(const controller *ctrl, int tactic_type) {
+ 
+     switch(tactic_type) {
+         case TACTIC_SHOOT:
+-            if(har_has_projectiles(h->id) && roll_pref(pilot->att_sniper) && enemy_range > RANGE_CRAMPED &&
+-               (h->id != HAR_SHREDDER || ((enemy_range <= RANGE_MID && smart_usually(a)) ||
++            if(har_has_projectiles(ai_har_kind(h)) && roll_pref(pilot->att_sniper) && enemy_range > RANGE_CRAMPED &&
++               (ai_har_kind(h) != HAR_SHREDDER || ((enemy_range <= RANGE_MID && smart_usually(a)) ||
+                                           dumb_sometimes(a)) // shredder prefers to be close-mid range
+                 )) {
+                 return true;
+             }
+             break;
+         case TACTIC_CLOSE:
+-            if(enemy_range > RANGE_CRAMPED && (har_has_charge(h->id) || roll_chance(4)) &&
++            if(enemy_range > RANGE_CRAMPED && (har_has_charge(ai_har_kind(h)) || roll_chance(4)) &&
+                roll_pref(pilot->att_hyper)) {
+                 return true;
+             }
+@@ -550,7 +555,7 @@ bool likes_tactic(const controller *ctrl, int tactic_type) {
+         case TACTIC_GRAB:
+             if((a->thrown <= MAX_TIMES_THROWN || roll_chance(2)) &&
+                ((roll_pref(pilot->att_hyper) && roll_chance(3)) ||
+-                ((h->id == HAR_FLAIL || h->id == HAR_THORN) && roll_chance(3)))) {
++                ((ai_har_kind(h) == HAR_FLAIL || ai_har_kind(h) == HAR_THORN) && roll_chance(3)))) {
+                 return true;
+             }
+             break;
+@@ -571,15 +576,15 @@ bool likes_tactic(const controller *ctrl, int tactic_type) {
+             break;
+         case TACTIC_FLY:
+             if((roll_pref(a->pilot->att_jump) || (a->shot > MAX_TIMES_SHOT && learning_moment(a)) ||
+-                (h->id == HAR_GARGOYLE || h->id == HAR_PYROS)) &&
++                (ai_har_kind(h) == HAR_GARGOYLE || ai_har_kind(h) == HAR_PYROS)) &&
+                ((wall_close && roll_chance(2)) || roll_chance(4))) {
+                 return true;
+             }
+             break;
+         case TACTIC_PUSH:
+             if((enemy_range <= RANGE_CLOSE ||
+-                ((h->id == HAR_THORN || h->id == HAR_KATANA) && enemy_range <= RANGE_MID)) &&
+-               ((har_has_push(h->id) && smart_usually(a)) &&
++                ((ai_har_kind(h) == HAR_THORN || ai_har_kind(h) == HAR_KATANA) && enemy_range <= RANGE_MID)) &&
++               ((har_has_push(ai_har_kind(h)) && smart_usually(a)) &&
+                 ((roll_pref(pilot->att_hyper) && roll_chance(2)) || (roll_pref(pilot->att_def) && roll_chance(4)) ||
+                  (wall_close && roll_chance(5))))) {
+                 return true;
+@@ -620,37 +625,37 @@ void queue_tactic(controller *ctrl, int tactic_type) {
+     // log when we queue a tactic
+     switch(tactic_type) {
+         case TACTIC_GRAB:
+-            log_debug("HAR %d queued tactic: GRAB", h->id);
++            log_debug("HAR %d queued tactic: GRAB", ai_har_kind(h));
+             break;
+         case TACTIC_TRIP:
+-            log_debug("HAR %d queued tactic: TRIP", h->id);
++            log_debug("HAR %d queued tactic: TRIP", ai_har_kind(h));
+             break;
+         case TACTIC_QUICK:
+-            log_debug("HAR %d queued tactic: QUICK", h->id);
++            log_debug("HAR %d queued tactic: QUICK", ai_har_kind(h));
+             break;
+         case TACTIC_CLOSE:
+-            log_debug("HAR %d queued tactic: CLOSE", h->id);
++            log_debug("HAR %d queued tactic: CLOSE", ai_har_kind(h));
+             break;
+         case TACTIC_FLY:
+-            log_debug("HAR %d queued tactic: FLY", h->id);
++            log_debug("HAR %d queued tactic: FLY", ai_har_kind(h));
+             break;
+         case TACTIC_SHOOT:
+-            log_debug("HAR %d queued tactic: SHOOT", h->id);
++            log_debug("HAR %d queued tactic: SHOOT", ai_har_kind(h));
+             break;
+         case TACTIC_PUSH:
+-            log_debug("HAR %d queued tactic: PUSH", h->id);
++            log_debug("HAR %d queued tactic: PUSH", ai_har_kind(h));
+             break;
+         case TACTIC_SPAM:
+-            log_debug("HAR %d queued tactic: SPAM", h->id);
++            log_debug("HAR %d queued tactic: SPAM", ai_har_kind(h));
+             break;
+         case TACTIC_ESCAPE:
+-            log_debug("HAR %d queued tactic: ESCAPE", h->id);
++            log_debug("HAR %d queued tactic: ESCAPE", ai_har_kind(h));
+             break;
+         case TACTIC_TURTLE:
+-            log_debug("HAR %d queued tactic: TURTLE", h->id);
++            log_debug("HAR %d queued tactic: TURTLE", ai_har_kind(h));
+             break;
+         case TACTIC_COUNTER:
+-            log_debug("HAR %d queued tactic: COUNTER", h->id);
++            log_debug("HAR %d queued tactic: COUNTER", ai_har_kind(h));
+             break;
+     }
+ 
+@@ -670,7 +675,7 @@ void queue_tactic(controller *ctrl, int tactic_type) {
+             if(enemy_close) {
+                 a->tactic->move_type = 0;
+             } else if((tactic_type == TACTIC_CLOSE || (tactic_type == TACTIC_QUICK && roll_chance(3))) &&
+-                      smart_usually(a) && har_has_charge(h->id)) {
++                      smart_usually(a) && har_has_charge(ai_har_kind(h))) {
+                 // smart AI will try to use charge attacks
+                 a->tactic->move_type = 0;
+                 do_charge = true;
+@@ -751,7 +756,7 @@ void queue_tactic(controller *ctrl, int tactic_type) {
+                 a->tactic->attack_id = 0;
+                 break;
+             case TACTIC_PUSH:
+-                if(har_has_push(h->id)) { // && smart_sometimes(a)
++                if(har_has_push(ai_har_kind(h))) { // && smart_sometimes(a)
+                     a->tactic->attack_type = ATTACK_PUSH;
+                 } else {
+                     a->tactic->attack_type = ATTACK_HEAVY;
+@@ -1155,7 +1160,7 @@ int ai_har_event(controller *ctrl, har_event event) {
+                 a->blocked = 0;
+                 a->thrown = 0;
+                 a->shot = 0;
+-                // log_debug("HAR %d forgot their learning.", h->id);
++                // log_debug("HAR %d forgot their learning.", ai_har_kind(h));
+             }
+ 
+             if(ms->max_hit_dist == -1 || ms->last_dist > ms->max_hit_dist) {
+@@ -1385,7 +1390,7 @@ int ai_har_event(controller *ctrl, har_event event) {
+                 break;
+             }
+ 
+-            log_debug("HAR capitalize on hazard: %d", h->id);
++            log_debug("HAR capitalize on hazard: %d", ai_har_kind(h));
+ 
+             int tacs[] = {TACTIC_GRAB, TACTIC_TRIP, TACTIC_QUICK, TACTIC_CLOSE, TACTIC_SHOOT};
+             chain_consider_tactics(ctrl, tacs, N_ELEMENTS(tacs));
+@@ -1395,7 +1400,7 @@ int ai_har_event(controller *ctrl, har_event event) {
+                 break;
+             }
+ 
+-            log_debug("HAR capitalize on stun: %d", h->id);
++            log_debug("HAR capitalize on stun: %d", ai_har_kind(h));
+ 
+             int tacs[] = {TACTIC_GRAB, TACTIC_CLOSE, TACTIC_TRIP, TACTIC_SHOOT};
+             chain_consider_tactics(ctrl, tacs, N_ELEMENTS(tacs));
+@@ -1747,7 +1752,7 @@ void handle_movement(controller *ctrl, ctrl_event **ev) {
+         } else if(!h->is_wallhugging && roll_pref(a->pilot->pref_back)) {
+             // pilot prefers backward
+             move_dir = MOVE_DIR_BACK;
+-        } else if((h->id == HAR_FLAIL || h->id == HAR_THORN || h->id == HAR_NOVA) && smart_usually(a)) {
++        } else if((ai_har_kind(h) == HAR_FLAIL || ai_har_kind(h) == HAR_THORN || ai_har_kind(h) == HAR_NOVA) && smart_usually(a)) {
+             // brawlers are more likely to face-hug
+             move_dir = MOVE_DIR_FWD;
+         }
+@@ -1932,8 +1937,8 @@ bool attempt_charge_attack(controller *ctrl, ctrl_event **ev) {
+             return false;
+     }
+ 
+-    // log_debug("HAR attempting charge: %d", h->id);
+-    switch(h->id) {
++    // log_debug("HAR attempting charge: %d", ai_har_kind(h));
++    switch(ai_har_kind(h)) {
+         case HAR_JAGUAR: {
+             // log_debug("Jaguar move: Leap");
+             if(enemy_range >= RANGE_MID && roll_pref(a->pilot->ap_special) && diff_scale(a)) {
+@@ -2103,8 +2108,8 @@ bool attempt_push_attack(controller *ctrl, ctrl_event **ev) {
+             return false;
+     }
+ 
+-    // log_debug("HAR attempting push: %d", h->id);
+-    switch(h->id) {
++    // log_debug("HAR attempting push: %d", ai_har_kind(h));
++    switch(ai_har_kind(h)) {
+         case HAR_JAGUAR: {
+             // log_debug("Jaguar move: High Kick");
+             // High Kick : B+K
+@@ -2228,12 +2233,12 @@ bool attempt_projectile_attack(controller *ctrl, ctrl_event **ev) {
+         controller_cmd(ctrl, ACT_STOP, ev);
+     }
+ 
+-    // log_debug("HAR attempting projectile: %d", h->id);
+-    switch(h->id) {
++    // log_debug("HAR attempting projectile: %d", ai_har_kind(h));
++    switch(ai_har_kind(h)) {
+         case HAR_JAGUAR:     // Concussion Cannon : D, B+P
+         case HAR_ELECTRA:    // Ball Lightning : D, B+P
+         case HAR_SHREDDER: { // Flying Hands : D, B+P
+-            if(h->id == HAR_SHREDDER && enemy_range > RANGE_MID) {
++            if(ai_har_kind(h) == HAR_SHREDDER && enemy_range > RANGE_MID) {
+                 return false;
+             }
+             int cmds[] = {ACT_DOWN, DOWNBACK, BACK | ACT_PUNCH};
+@@ -2312,7 +2317,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     tactic->move_timer--;
+                 } else {
+                     tactic->move_timer = 0;
+-                    // log_debug("Movement close success: %d", h->id);
++                    // log_debug("Movement close success: %d", ai_har_kind(h));
+                     if(tactic->attack_type == 0 && smart_usually(a)) {
+                         queue_tactic(ctrl, TACTIC_GRAB);
+                     }
+@@ -2340,7 +2345,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     tactic->move_timer--;
+                 }
+ 
+-                // if (tactic->move_timer == 0) log_debug("Movement avoid finished: %d", h->id);
++                // if (tactic->move_timer == 0) log_debug("Movement avoid finished: %d", ai_har_kind(h));
+                 break;
+             case MOVE_JUMP:
+             case MOVE_HIGH_JUMP:
+@@ -2372,7 +2377,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     tactic->move_timer = 0;
+                 }
+ 
+-                // if (tactic->move_timer == 0) log_debug("Movement jump finished: %d", h->id);
++                // if (tactic->move_timer == 0) log_debug("Movement jump finished: %d", ai_har_kind(h));
+                 break;
+             case MOVE_BLOCK:
+                 if(wall_close || har_is_crouching(h)) {
+@@ -2386,10 +2391,10 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                 controller_cmd(ctrl, a->cur_act, ev);
+                 tactic->move_timer--;
+ 
+-                // if (tactic->move_timer == 0) log_debug("Movement block finished: %d", h->id);
++                // if (tactic->move_timer == 0) log_debug("Movement block finished: %d", ai_har_kind(h));
+                 break;
+             default:
+-                // log_debug("Flushing invalid move type: %d", h->id);
++                // log_debug("Flushing invalid move type: %d", ai_har_kind(h));
+                 tactic->move_type = 0;
+                 tactic->move_timer = 0;
+                 acted = false;
+@@ -2409,7 +2414,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+ 
+                     if(assign_move_by_id(ctrl, tactic->attack_id)) {
+                         reset_tactic_state(a);
+-                        // log_debug("Specific attack success: %d", h->id);
++                        // log_debug("Specific attack success: %d", ai_har_kind(h));
+                     }
+                 } break;
+                 case ATTACK_TRIP: {
+@@ -2435,7 +2440,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+ 
+                     if(attack_cat > 0) {
+                         reset_tactic_state(a);
+-                        // log_debug("Grab attack success: %d", h->id);
++                        // log_debug("Grab attack success: %d", ai_har_kind(h));
+ 
+                         // chain another tactic
+                         if(smart_sometimes(a)) {
+@@ -2467,7 +2472,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     int light_cat = roll_chance(2) ? CAT_BASIC : CAT_MEDIUM;
+                     if(assign_move_by_cat(ctrl, light_cat, false)) {
+                         reset_tactic_state(a);
+-                        // log_debug("Light attack success: %d", h->id);
++                        // log_debug("Light attack success: %d", ai_har_kind(h));
+ 
+                         // chain another tactic
+                         if(smart_sometimes(a)) {
+@@ -2495,7 +2500,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     int heavy_cat = roll_chance(2) ? CAT_MEDIUM : CAT_HIGH;
+                     if(assign_move_by_cat(ctrl, heavy_cat, true)) {
+                         reset_tactic_state(a);
+-                        // log_debug("Heavy attack success: %d", h->id);
++                        // log_debug("Heavy attack success: %d", ai_har_kind(h));
+ 
+                         // chain another tactic
+                         if(smart_sometimes(a)) {
+@@ -2525,7 +2530,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+ 
+                     if(attempt_attack(ctrl, false)) {
+                         reset_tactic_state(a);
+-                        // log_debug("Jump attack success: %d", h->id);
++                        // log_debug("Jump attack success: %d", ai_har_kind(h));
+ 
+                         // chain another tactic
+                         if(smart_usually(a)) {
+@@ -2571,7 +2576,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     if(attempt_charge_attack(ctrl, ev)) {
+                         reset_tactic_state(a);
+ 
+-                        if(h->id == HAR_SHADOW) {
++                        if(ai_har_kind(h) == HAR_SHADOW) {
+                             // shadow charge is long range
+                             // use this free time to consider a new tactic
+                             int tacs[] = {TACTIC_SHOOT, TACTIC_GRAB, TACTIC_FLY};
+@@ -2587,7 +2592,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                 case ATTACK_RANDOM: {
+                     if(attempt_attack(ctrl, false)) {
+                         reset_tactic_state(a);
+-                        // log_debug("Random attack success: %d", h->id);
++                        // log_debug("Random attack success: %d", ai_har_kind(h));
+ 
+                         // chain another tactic
+                         if(smart_usually(a)) {
+@@ -2608,7 +2613,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+                     }
+                 } break;
+                 default:
+-                    log_debug("Flushing invalid attack type: %d", h->id);
++                    log_debug("Flushing invalid attack type: %d", ai_har_kind(h));
+                     tactic->attack_type = 0;
+                     tactic->attack_timer = 0;
+             }
+@@ -2616,7 +2621,7 @@ bool handle_queued_tactic(controller *ctrl, ctrl_event **ev) {
+     } else {
+         // reset queued tactic
+         reset_tactic_state(a);
+-        // log_debug("Flushing failed tactic queue: %d", h->id);
++        // log_debug("Flushing failed tactic queue: %d", ai_har_kind(h));
+     }
+ 
+     return acted;
+@@ -2729,7 +2734,7 @@ int ai_controller_poll(controller *ctrl, ctrl_event **ev) {
+     // attempt a random attack
+     if((roll_chance(RANDOM_ATTACK_CHANCE) || diff_scale(a)) && (enemy_range <= RANGE_CLOSE || dumb_sometimes(a)) &&
+        attempt_attack(ctrl, false)) {
+-        // log_debug("Random attack: %d", h->id);
++        // log_debug("Random attack: %d", ai_har_kind(h));
+         // reset movement act timer
+         reset_act_timer(a);
+         return 0;
+diff --git a/src/game/common_defines.c b/src/game/common_defines.c
+index c896f78e..5f737bf5 100644
+--- a/src/game/common_defines.c
++++ b/src/game/common_defines.c
+@@ -1,5 +1,6 @@
+ #include "game/common_defines.h"
+ #include "resources/ids.h"
++#include "resources/languages.h"
+ #include "utils/c_array_util.h"
+ #include "utils/c_string_util.h"
+ #include "utils/random.h"
+@@ -22,7 +23,7 @@ const char *pilot_type_names[] = {"CRYSTAL", "STEFFAN", "MILANO",   "CHRISTIAN",
+                                   "IBRAHIM", "ANGEL",   "COSSETTE", "RAVEN",     "KREISSACK"};
+ 
+ const char *har_type_names[] = {"JAGUAR",   "SHADOW", "THORN",    "PYROS",   "ELECTRA", "KATANA",
+-                                "SHREDDER", "FLAIL",  "GARGOYLE", "CHRONOS", "NOVA"};
++                                "SHREDDER", "FLAIL",  "GARGOYLE", "CHRONOS", "NOVA",    "OCELOT"};
+ 
+ const char *scene_type_names[] = {
+     "SCENE_NONE",   "SCENE_INTRO",    "SCENE_OPENOMF",      "SCENE_MENU",       "SCENE_END",
+@@ -49,6 +50,15 @@ const char *har_get_name(unsigned int id) {
+     return har_type_names[id];
+ }
+ 
++// The HAR's name as the game's texts spell it ("Jaguar"). The language files only
++// know the original eleven.
++const char *har_get_lang_name(unsigned int id) {
++    if(id == HAR_OCELOT) {
++        return "Ocelot";
++    }
++    return lang_get(LANG_STR_HAR + id);
++}
++
+ int har_get_id(const char *name) {
+     if(!name) {
+         return -1;
+diff --git a/src/game/common_defines.h b/src/game/common_defines.h
+index ea6c2b09..7145bfe6 100644
+--- a/src/game/common_defines.h
++++ b/src/game/common_defines.h
+@@ -5,6 +5,7 @@
+ 
+ const char *ai_difficulty_get_name(unsigned int id);
+ const char *har_get_name(unsigned int id);
++const char *har_get_lang_name(unsigned int id);
+ int har_get_id(const char *name);
+ const char *pilot_get_name(unsigned int id);
+ const char *round_get_name(unsigned int id);
+@@ -73,6 +74,7 @@ enum
+     HAR_GARGOYLE,
+     HAR_CHRONOS,
+     HAR_NOVA,
++    HAR_OCELOT, // web build: Jaguar re-skinned, see tools/web/ocelot
+     NUMBER_OF_HAR_TYPES,
+ };
+ 
+diff --git a/src/game/objects/har.c b/src/game/objects/har.c
+index 8187fd30..70da1e25 100644
+--- a/src/game/objects/har.c
++++ b/src/game/objects/har.c
+@@ -13,6 +13,7 @@
+ #include "game/objects/scrap.h"
+ #include "game/protos/intersect.h"
+ #include "game/scenes/arena.h"
++#include "game/utils/har_extended.h"
+ #include "resources/af_loader.h"
+ #include "resources/animation.h"
+ #include "utils/allocator.h"
+@@ -1728,14 +1729,18 @@ void har_collide(object *obj_a, object *obj_b) {
+ static void process_range(const har *h, damage_tracker *damage, vga_palette *pal, uint8_t step) {
+     // For player 0, we should use palette indexes 1 through 47. For player 1, 49 through 95 (skip black).
+     // If pe flag is on, we need to switch to handling the other HAR.
+-    const int start = 48 * (h->player_id ^ h->p_har_switch) + 1;
+-    const int end = start + 47;
+-    if(h->p_color_fn) {
+-        vga_palette_tint_range(pal, h->p_pal_ref, start, end, step);
+-    } else {
+-        vga_palette_mix_range(pal, h->p_pal_ref, start, end, step);
++    const int player = h->player_id ^ h->p_har_switch;
++    // the pilot's 47 colors, then the HAR's extended ones
++    const int starts[2] = {48 * player + 1, HAR_EXTENDED_BASE + 1 + HAR_EXTENDED_STRIDE * player};
++    const int counts[2] = {47, HAR_EXTENDED_COLORS};
++    for(int r = 0; r < 2; r++) {
++        if(h->p_color_fn) {
++            vga_palette_tint_range(pal, h->p_pal_ref, starts[r], starts[r] + counts[r], step);
++        } else {
++            vga_palette_mix_range(pal, h->p_pal_ref, starts[r], starts[r] + counts[r], step);
++        }
++        damage_add_range(damage, starts[r], starts[r] + counts[r]);
+     }
+-    damage_add_range(damage, start, end);
+ }
+ 
+ static void har_palette_transform(damage_tracker *damage, vga_palette *pal, void *userdata) {
+@@ -1756,11 +1761,13 @@ static void har_palette_transform(damage_tracker *damage, vga_palette *pal, void
+         gray *= 4;
+         blend_factor *= 4;
+ 
+-        const int start = 48 * (h->player_id ^ h->p_har_switch) + 1;
+-        const int end = start + 47;
+-
+-        vga_palette_light_range(pal, gray, start, end, blend_factor);
+-        damage_add_range(damage, start, end);
++        const int player = h->player_id ^ h->p_har_switch;
++        const int starts[2] = {48 * player + 1, HAR_EXTENDED_BASE + 1 + HAR_EXTENDED_STRIDE * player};
++        const int counts[2] = {47, HAR_EXTENDED_COLORS};
++        for(int r = 0; r < 2; r++) {
++            vga_palette_light_range(pal, gray, starts[r], starts[r] + counts[r], blend_factor);
++            damage_add_range(damage, starts[r], starts[r] + counts[r]);
++        }
+     }
+ 
+     float step;
+@@ -2848,13 +2855,15 @@ int har_create(object *obj, af *af_data, int dir, int har_id, int pilot_id, int
+             // check for enhancements
+             if(move->ani.extra_string_count > 0 && move->extra_string_selector != ESS_ARM_SPEED &&
+                move->extra_string_selector != ESS_LEG_SPEED) {
++                // pilots store one enhancement level per original HAR; OCELOT has none
++                int enhancements = har_id < (int)sizeof(pilot->enhancements) ? pilot->enhancements[har_id] : 0;
+                 // if you have 1 enhancement choose extra string 2
+                 // if you have 2 enhancements choose extra string 3
+                 // if you have 3 enhancements choose extra string 4
+                 // if that string doesn't exist, pick the highest one
+-                if(pilot->enhancements[har_id] > 0) {
++                if(enhancements > 0) {
+                     // find the last populated enhancement index, or 1 (hyper)
+-                    int enhancement_str = min2(1 + pilot->enhancements[har_id], move->ani.extra_string_count - 1);
++                    int enhancement_str = min2(1 + enhancements, move->ani.extra_string_count - 1);
+                     // don't override the hyper mode switch
+                     if(enhancement_str >= 2) {
+                         extra_index = enhancement_str;
+@@ -2866,9 +2875,9 @@ int har_create(object *obj, af *af_data, int dir, int har_id, int pilot_id, int
+                     // its not the empty string and its not the string '!'
+                     // so we should use it
+                     str_set(&move->ani.animation_string, str);
+-                    if(pilot->enhancements[har_id] > 0) {
++                    if(enhancements > 0) {
+                         log_debug("using enhancement %d string '%s' for animation %d on har %d",
+-                                  pilot->enhancements[har_id], str_c(str), i, har_id);
++                                  enhancements, str_c(str), i, har_id);
+                     } else {
+                         log_debug("using %s mode string '%s' for animation %d on har %d",
+                                   fight_mode ? "hyper" : "normal", str_c(str), i, har_id);
+diff --git a/src/game/protos/intersect.c b/src/game/protos/intersect.c
+index c3ce7163..e2d216d2 100644
+--- a/src/game/protos/intersect.c
++++ b/src/game/protos/intersect.c
+@@ -1,4 +1,5 @@
+ #include "game/protos/intersect.h"
++#include "game/utils/har_extended.h"
+ 
+ /**
+  * \brief Checks if objects hitboxes intersect.
+@@ -137,8 +138,9 @@ int intersect(const object *obj, const object *target, vec2i *point, bool is_har
+         if(hitpoint >= sfc->w * sfc->h) {
+             continue;
+         }
+-        // Only main HAR colors count
+-        if(sfc->data[hitpoint] != sfc->transparent && (sfc->data[hitpoint] < 96 || !is_har)) {
++        // Only main HAR colors count: the pilot's ramps, or the HAR's extended colors
++        vga_pixel hit = sfc->data[hitpoint];
++        if(hit != sfc->transparent && (hit < 96 || hit > HAR_EXTENDED_BASE || !is_har)) {
+             hcoords[found++] = vec2i_create(xcoord, ycoord);
+         }
+         if(found > 0) {
+diff --git a/src/game/protos/scene.c b/src/game/protos/scene.c
+index fbc4ba21..56b74bba 100644
+--- a/src/game/protos/scene.c
++++ b/src/game/protos/scene.c
+@@ -1,6 +1,7 @@
+ #include "game/protos/scene.h"
+ #include "game/game_player.h"
+ #include "game/game_state_type.h"
++#include "game/utils/har_extended.h"
+ #include "resources/af_loader.h"
+ #include "resources/bk_loader.h"
+ #include "resources/ids.h"
+@@ -103,6 +104,7 @@ int scene_load_har(scene *scene, int player_id) {
+         return 1;
+     }
+ 
++    har_extended_load_sprites(scene->af_data[player_id], player->pilot->har_id);
+     log_debug("Loaded HAR %s (%s).", har_get_name(player->pilot->har_id), get_resource_name(resource_id));
+     return 0;
+ }
+diff --git a/src/game/scenes/arena.c b/src/game/scenes/arena.c
+index 95eab286..0122790a 100644
+--- a/src/game/scenes/arena.c
++++ b/src/game/scenes/arena.c
+@@ -29,6 +29,7 @@
+ #include "game/scenes/arena.h"
+ #include "game/scenes/mechlab/har_economy.h"
+ #include "game/scenes/mechlab/lab_menu_customize.h"
++#include "game/utils/har_extended.h"
+ #include "game/utils/score.h"
+ #include "game/utils/settings.h"
+ #include "game/utils/ticktimer.h"
+@@ -1800,7 +1801,7 @@ int arena_create(scene *scene) {
+         object *obj = omf_calloc(1, sizeof(object));
+ 
+         // load the player's colors into the palette
+-        palette_load_player_colors(&player->pilot->palette, i);
++        har_load_player_colors(&player->pilot->palette, player->pilot->har_id, i);
+ 
+         // Create object and specialize it as HAR.
+         // Errors are unlikely here, but check anyway.
+@@ -1898,7 +1899,7 @@ int arena_create(scene *scene) {
+     // Set the name and HAR here, as they will remain static during the match. Ping will be dynamically set.
+     for(int i = 0; i < 2; i++) {
+         local->player_name[i] = create_text_object(str_c(&_player[i]->pilot->name));
+-        local->player_har[i] = create_text_object(lang_get(_player[i]->pilot->har_id + 31));
++        local->player_har[i] = create_text_object(har_get_lang_name(_player[i]->pilot->har_id));
+         local->player_ping[i] = create_text_object("0");
+     }
+ 
+diff --git a/src/game/scenes/newsroom.c b/src/game/scenes/newsroom.c
+index 4c396428..a65d5abd 100644
+--- a/src/game/scenes/newsroom.c
++++ b/src/game/scenes/newsroom.c
+@@ -2,6 +2,7 @@
+ #include "game/audio/music_tracker.h"
+ #include "game/gui/dialog.h"
+ #include "game/gui/menu_background.h"
++#include "game/utils/har_extended.h"
+ #include "game/utils/settings.h"
+ #include "resources/ids.h"
+ #include "resources/languages.h"
+@@ -120,8 +121,8 @@ void newsroom_fixup_str(newsroom_local *local) {
+     str_replace(&tmp, "~7", pronoun_strip(object_pronoun(local->sex1), scratch, sizeof scratch), -1);
+     str_replace(&tmp, "~6", pronoun_strip(possessive_pronoun(local->sex1), scratch, sizeof scratch), -1);
+     str_replace(&tmp, "~5", "Stadium", -1);
+-    str_replace(&tmp, "~4", pronoun_strip(lang_get(local->har2 + LANG_STR_HAR), scratch, sizeof scratch), -1);
+-    str_replace(&tmp, "~3", pronoun_strip(lang_get(local->har1 + LANG_STR_HAR), scratch, sizeof scratch), -1);
++    str_replace(&tmp, "~4", pronoun_strip(har_get_lang_name(local->har2), scratch, sizeof scratch), -1);
++    str_replace(&tmp, "~3", pronoun_strip(har_get_lang_name(local->har1), scratch, sizeof scratch), -1);
+     str_replace(&tmp, "~2", str_c(&local->pilot2), -1);
+     str_replace(&tmp, "~1", str_c(&local->pilot1), -1);
+ 
+@@ -496,7 +497,7 @@ int newsroom_create(scene *scene) {
+         game_player *player = game_state_get_player(scene->gs, i);
+ 
+         // load the player's colors into the palette
+-        palette_load_player_colors(&player->pilot->palette, i);
++        har_load_player_colors(&player->pilot->palette, player->pilot->har_id, i);
+     }
+ 
+     // Set callbacks
+diff --git a/src/game/scenes/vs.c b/src/game/scenes/vs.c
+index e5f63b8d..40862da6 100644
+--- a/src/game/scenes/vs.c
++++ b/src/game/scenes/vs.c
+@@ -7,6 +7,7 @@
+ #include "game/protos/scene.h"
+ #include "game/scenes/mechlab/lab_menu_customize.h"
+ #include "game/utils/formatting.h"
++#include "game/utils/har_extended.h"
+ #include "game/utils/settings.h"
+ #include "resources/languages.h"
+ #include "utils/allocator.h"
+@@ -552,14 +553,17 @@ int vs_create(scene *scene) {
+     }
+ 
+     // Set player palettes
+-    palette_load_player_colors(&player1->pilot->palette, 0);
++    har_load_player_colors(&player1->pilot->palette, player1->pilot->har_id, 0);
+     if(player2->pilot) {
+-        palette_load_player_colors(&player2->pilot->palette, 1);
++        har_load_player_colors(&player2->pilot->palette, player2->pilot->har_id, 1);
+     }
+ 
+     // HAR
+     animation *ani;
+     ani = &bk_get_info(scene->bk_data, 5)->ani;
++    if(animation_get_sprite_count(ani) > HAR_OCELOT) {
++        har_extended_shift_surface(animation_get_sprite(ani, HAR_OCELOT)->data);
++    }
+     object *player1_har = omf_calloc(1, sizeof(object));
+     object_create(player1_har, scene->gs, vec2i_create(160, 0), vec2f_create(0, 0));
+     object_set_animation(player1_har, ani);
+diff --git a/src/game/utils/har_extended.c b/src/game/utils/har_extended.c
+new file mode 100644
+index 00000000..5bd5185f
+--- /dev/null
++++ b/src/game/utils/har_extended.c
+@@ -0,0 +1,147 @@
++#include "game/utils/har_extended.h"
++#include "formats/internal/reader.h"
++#include "formats/palette.h"
++#include "game/common_defines.h"
++#include "resources/animation.h"
++#include "resources/ids.h"
++#include "resources/resource_files.h"
++#include "resources/sprite.h"
++#include "utils/allocator.h"
++#include "utils/log.h"
++#include "video/vga_state.h"
++#include <string.h>
++
++// <AF name>.X16, written by tools/web/ocelot (all values little endian):
++//   "OMFX16" 0 1                  magic, version
++//   u16 color count, then RGB     the colors of pixels 257, 258, ...
++//   u16 frame count, then frames: u8 move, u8 sprite, u16 width, u16 height,
++//                                 runs of (u16 transparent pixels, u16 n, n u16 pixels)
++//                                 until width * height pixels are covered
++// Pixel values below 256 keep meaning the shared palette (effects, the fire).
++
++typedef struct {
++    uint8_t move;
++    uint8_t sprite;
++    uint16_t w;
++    uint16_t h;
++    vga_pixel *pixels;
++} x16_frame;
++
++typedef struct {
++    bool tried;
++    int color_count;
++    vga_color colors[HAR_EXTENDED_COLORS];
++    int frame_count;
++    x16_frame *frames;
++} x16_file;
++
++static x16_file x16_files[NUMBER_OF_HAR_TYPES];
++
++static bool x16_read(x16_file *x16, sd_reader *r) {
++    char magic[8];
++    if(sd_read_buf(r, magic, 8) != 1 || memcmp(magic, "OMFX16\0\1", 8) != 0) {
++        return false;
++    }
++    x16->color_count = sd_read_uword(r);
++    if(x16->color_count > HAR_EXTENDED_COLORS) {
++        return false;
++    }
++    for(int i = 0; i < x16->color_count; i++) {
++        x16->colors[i].r = sd_read_ubyte(r);
++        x16->colors[i].g = sd_read_ubyte(r);
++        x16->colors[i].b = sd_read_ubyte(r);
++    }
++    x16->frame_count = sd_read_uword(r);
++    x16->frames = omf_calloc(x16->frame_count, sizeof(x16_frame));
++    for(int f = 0; f < x16->frame_count; f++) {
++        x16_frame *frame = &x16->frames[f];
++        frame->move = sd_read_ubyte(r);
++        frame->sprite = sd_read_ubyte(r);
++        frame->w = sd_read_uword(r);
++        frame->h = sd_read_uword(r);
++        int size = frame->w * frame->h;
++        frame->pixels = omf_calloc(size, sizeof(vga_pixel));
++        for(int at = 0; at < size && sd_reader_ok(r);) {
++            at += sd_read_uword(r);
++            int n = sd_read_uword(r);
++            for(int k = 0; k < n && at < size; k++) {
++                vga_pixel v = sd_read_uword(r);
++                frame->pixels[at++] = v < VGA_PALETTE_SIZE ? v : 0;
++            }
++        }
++    }
++    return sd_reader_ok(r);
++}
++
++static const x16_file *x16_get(unsigned int har_id) {
++    if(har_id >= NUMBER_OF_HAR_TYPES || sizeof(vga_pixel) < 2) {
++        return NULL;
++    }
++    x16_file *x16 = &x16_files[har_id];
++    if(!x16->tried) {
++        x16->tried = true;
++        // FIGHTR11.AF -> FIGHTR11.X16
++        char name[32];
++        snprintf(name, sizeof(name), "%s", get_resource_file(har_to_resource(har_id)));
++        char *dot = strrchr(name, '.');
++        if(dot) {
++            snprintf(dot, sizeof(name) - (dot - name), ".X16");
++        }
++        path filename = get_resource_filename(name);
++        sd_reader *r = sd_reader_open(&filename);
++        if(r) {
++            if(!x16_read(x16, r)) {
++                log_error("Invalid extended colors file %s", path_c(&filename));
++                x16->color_count = 0;
++                x16->frame_count = 0;
++            }
++            sd_reader_close(r);
++        }
++    }
++    return x16->color_count ? x16 : NULL;
++}
++
++const vga_color *har_extended_colors(unsigned int har_id, int *count) {
++    const x16_file *x16 = x16_get(har_id);
++    *count = x16 ? x16->color_count : 0;
++    return x16 ? x16->colors : NULL;
++}
++
++void har_extended_load_sprites(af *af_data, unsigned int har_id) {
++    const x16_file *x16 = x16_get(har_id);
++    if(!x16) {
++        return;
++    }
++    for(int f = 0; f < x16->frame_count; f++) {
++        const x16_frame *frame = &x16->frames[f];
++        af_move *move = af_get_move(af_data, frame->move);
++        sprite *sp = move ? animation_get_sprite(&move->ani, frame->sprite) : NULL;
++        if(!sp || !sp->owned) { // references share another sprite's pixels
++            continue;
++        }
++        if(sp->data->w != frame->w || sp->data->h != frame->h) {
++            log_error("%s: sprite %d/%d is %dx%d, its extended pixels %dx%d", har_get_name(har_id), frame->move,
++                      frame->sprite, sp->data->w, sp->data->h, frame->w, frame->h);
++            continue;
++        }
++        memcpy(sp->data->data, frame->pixels, frame->w * frame->h * sizeof(vga_pixel));
++    }
++}
++
++void har_extended_shift_surface(surface *sur) {
++    for(int i = 0; i < sur->w * sur->h; i++) {
++        if(sur->data[i] > 0 && sur->data[i] < 160) {
++            sur->data[i] += HAR_EXTENDED_BASE;
++        }
++    }
++}
++
++void har_load_player_colors(const vga_palette *pilot_colors, unsigned int har_id, int player) {
++    palette_load_player_colors(pilot_colors, player);
++    int count;
++    const vga_color *colors = har_extended_colors(har_id, &count);
++    if(colors) {
++        vga_state_set_base_palette_range(HAR_EXTENDED_BASE + 1 + HAR_EXTENDED_STRIDE * player, count,
++                                         (vga_color *)colors);
++    }
++}
+diff --git a/src/game/utils/har_extended.h b/src/game/utils/har_extended.h
+new file mode 100644
+index 00000000..e5fb6561
+--- /dev/null
++++ b/src/game/utils/har_extended.h
+@@ -0,0 +1,29 @@
++#ifndef HAR_EXTENDED_H
++#define HAR_EXTENDED_H
++
++#include "resources/af.h"
++#include "video/surface.h"
++#include "video/vga_palette.h"
++
++// A HAR may bring more colors than the pilot's 47: up to 383 per player, in the extended
++// palette above the original game's 256. Player 1's live at 257..639 and player 2's at
++// 641..1023. Sprites always use player 1's; the palette shader moves them for player 2's
++// objects (palette offset 48 means +384 there), as it moves the pilot's ramps.
++#define HAR_EXTENDED_BASE 256
++#define HAR_EXTENDED_STRIDE 384
++#define HAR_EXTENDED_COLORS 383
++
++// The HAR's extended colors, from its <AF name>.X16 file; NULL and 0 when it has none.
++const vga_color *har_extended_colors(unsigned int har_id, int *count);
++
++// Replaces the HAR's sprite pixels with the 16-bit ones in its .X16 file, if it has one.
++void har_extended_load_sprites(af *af_data, unsigned int har_id);
++
++// An 8-bit sprite drawn in a HAR's first 159 extended colors (bytes 1..159), such as its
++// portrait in VS.BK: moves those bytes to the extended palette.
++void har_extended_shift_surface(surface *sur);
++
++// Loads the pilot's colors, and the HAR's extended colors, into the player's palette ranges.
++void har_load_player_colors(const vga_palette *pilot_colors, unsigned int har_id, int player);
++
++#endif // HAR_EXTENDED_H
+diff --git a/src/game/utils/har_screencap.c b/src/game/utils/har_screencap.c
+index d035afe5..a59917a4 100644
+--- a/src/game/utils/har_screencap.c
++++ b/src/game/utils/har_screencap.c
+@@ -1,4 +1,5 @@
+ #include "game/utils/har_screencap.h"
++#include "game/utils/har_extended.h"
+ #include "utils/miscmath.h"
+ #include "video/vga_state.h"
+ #include "video/video.h"
+@@ -98,6 +99,12 @@ void har_screencaps_capture(har_screencaps *caps, object *obj, object *obj2, int
+ void har_screencaps_compress(har_screencaps *caps, const vga_palette *pal, int id) {
+     if(caps->ok[id] && caps->raw[id].data) {
+         surface_to_grayscale(&caps->raw[id], &caps->cap[id], pal, 0xD0, 0xDF, 0x60);
++        // a HAR's own extended colors stay, like its ramps below 0x60
++        for(int i = 0; i < caps->raw[id].w * caps->raw[id].h; i++) {
++            if(caps->raw[id].data[i] > HAR_EXTENDED_BASE) {
++                caps->cap[id].data[i] = caps->raw[id].data[i];
++            }
++        }
+         surface_free(&caps->raw[id]);
+         caps->raw[id].data = NULL;
+     }
+diff --git a/src/resources/ids.c b/src/resources/ids.c
+index 628aed7c..04644cca 100644
+--- a/src/resources/ids.c
++++ b/src/resources/ids.c
+@@ -60,6 +60,8 @@ const char *get_resource_file(unsigned int id) {
+             return "FIGHTR9.AF";
+         case AF_NOVA:
+             return "FIGHTR10.AF";
++        case AF_OCELOT:
++            return "FIGHTR11.AF";
+         case PSM_MENU:
+             return "MENU.PSM";
+         case PSM_END:
+@@ -152,6 +154,8 @@ const char *get_resource_name(unsigned int id) {
+             return "AF_CHRONOS";
+         case AF_NOVA:
+             return "AF_NOVA";
++        case AF_OCELOT:
++            return "AF_OCELOT";
+         case PSM_MENU:
+             return "PSM_MENU";
+         case PSM_END:
+@@ -189,7 +193,7 @@ int is_arena(unsigned int id) {
+ }
+ 
+ int is_har(unsigned int id) {
+-    return (id >= AF_JAGUAR && id <= AF_NOVA);
++    return (id >= AF_JAGUAR && id <= AF_OCELOT);
+ }
+ 
+ int is_music(unsigned int id) {
+diff --git a/src/resources/ids.h b/src/resources/ids.h
+index 42e33439..a54f4aff 100644
+--- a/src/resources/ids.h
++++ b/src/resources/ids.h
+@@ -30,6 +30,7 @@ typedef enum resource_id
+     AF_GARGOYLE,
+     AF_CHRONOS,
+     AF_NOVA,
++    AF_OCELOT,
+     PSM_END,
+     PSM_MENU,
+     PSM_ARENA0,

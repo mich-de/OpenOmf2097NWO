@@ -1,0 +1,984 @@
+diff --git a/src/controller/ai_controller.c b/src/controller/ai_controller.c
+index 6c06b275..83409566 100644
+--- a/src/controller/ai_controller.c
++++ b/src/controller/ai_controller.c
+@@ -2,6 +2,7 @@
+ #include "controller/controller.h"
+ #include "formats/pilot.h"
+ #include "game/game_state.h"
++#include "game/nwo_pilots.h"
+ #include "game/objects/har.h"
+ #include "game/objects/projectile.h"
+ #include "game/objects/scrap.h"
+@@ -839,7 +840,9 @@ void reset_tactic_state(ai *a) {
+  */
+ void reset_pilot_personality(sd_pilot *pilot) {
+     // log_debug("\033[90mReset pilot personality: %d", pilot->pilot_id);
+-    switch(pilot->pilot_id) {
++    // NWO: each pilot plays like one of the original personalities (nwo_pilots.c)
++    const nwo_pilot *nwo = nwo_pilot_get(pilot->pilot_id);
++    switch(nwo ? nwo->ai_style : pilot->pilot_id) {
+         case 0:
+             // crystal
+             pilot->att_normal = 30;
+@@ -1025,7 +1028,7 @@ void reset_pilot_personality(sd_pilot *pilot) {
+             pilot->learning = 3.0;
+             pilot->forget = 0.25;
+             break;
+-        case PILOT_TRUMP:
++        case 11:
+             // web build: walks straight in and grabs
+             pilot->att_normal = 50;
+             pilot->att_hyper = 30;
+@@ -1040,7 +1043,7 @@ void reset_pilot_personality(sd_pilot *pilot) {
+             pilot->learning = 1.0f;
+             pilot->forget = 0.3f;
+             break;
+-        case PILOT_MUSK:
++        case 12:
+             // web build: keeps away, shoots, learns fast
+             pilot->att_normal = 25;
+             pilot->att_hyper = 40;
+diff --git a/src/game/common_defines.c b/src/game/common_defines.c
+index 61b6c3c6..2edd39f2 100644
+--- a/src/game/common_defines.c
++++ b/src/game/common_defines.c
+@@ -1,4 +1,5 @@
+ #include "game/common_defines.h"
++#include "game/nwo_pilots.h"
+ #include "resources/ids.h"
+ #include "resources/languages.h"
+ #include "utils/c_array_util.h"
+@@ -19,9 +20,8 @@ const char *round_type_names[] = {
+     "BEST 4 OF 7",
+ };
+ 
+-const char *pilot_type_names[] = {"CRYSTAL", "STEFFAN",   "MILANO", "CHRISTIAN", "SHIRRO",
+-                                  "JEAN-PAUL", "IBRAHIM", "ANGEL",  "COSSETTE",  "RAVEN",
+-                                  "KREISSACK", "TRUMP",   "MUSK"};
++// NWO: names for the score board, see pilot_get_name()
++const char *pilot_type_names[] = {"KREISSACK"};
+ 
+ const char *har_type_names[] = {"JAGUAR",   "SHADOW", "THORN",    "PYROS",   "ELECTRA", "KATANA",
+                                 "SHREDDER", "FLAIL",  "GARGOYLE", "CHRONOS", "NOVA",    "OCELOT"};
+@@ -60,62 +60,30 @@ const char *har_get_lang_name(unsigned int id) {
+     return lang_get(LANG_STR_HAR + id);
+ }
+ 
+-// The pilots the language files don't know (web build): Trump and Musk.
+-typedef struct {
+-    const char *name;
+-    const char *bio;
+-    const char *says[2];     // in the VS screen: opening line, reply
+-    const char *taunted[2];  // what the original pilots say to them: opening line, reply
+-    const char *ending[2];   // after beating Kreissack
+-} extra_pilot;
+-
+-static const extra_pilot extra_pilots[] = {
+-    {
+-        "Trump",
+-        "A real estate tycoon who bought a robot team because the arena had the best ratings. "
+-        "Says nobody has ever piloted better.",
+-        {"Nobody fights better than me. Believe me.", "Tremendous robot. The best. Everybody says so."},
+-        {"Your hair won't save you in the arena.", "Bigly talk. Let's see the robot."},
+-        {"The W.A.R. arena is now Trump Arena. It was a great deal, a very great deal.",
+-         "Kreissack never stood a chance. Many people are saying it was the greatest win in history."},
+-    },
+-    {
+-        "Musk",
+-        "An engineer and billionaire who thinks robots are the future and wants to prove it in person. "
+-        "Plans to take the tournament to Mars.",
+-        {"I've already simulated this fight. You lose.", "Interesting. Your robot needs a firmware update."},
+-        {"Can your rockets catch a punch?", "Put that robot back on autopilot."},
+-        {"With the arena's robots Musk founds a company to build them for everyone. Delivery: next year.",
+-         "Kreissack's base becomes the launch pad of the first robot tournament on Mars."},
+-    },
+-};
+-#define EXTRA_PILOT(id) (&extra_pilots[(id) - PILOT_TRUMP])
+-
++// NWO: everything about the pilots comes from game/nwo_pilots.c, Kreissack's from the game.
+ const char *pilot_get_lang_name(unsigned int id) {
+-    return id >= PILOT_TRUMP && id < NUMBER_OF_PILOT_TYPES ? EXTRA_PILOT(id)->name : lang_get(20 + id);
++    const nwo_pilot *p = nwo_pilot_get(id);
++    return p ? p->name : lang_get(20 + id);
+ }
+ 
+ const char *pilot_get_lang_bio(unsigned int id) {
+-    return id >= PILOT_TRUMP && id < NUMBER_OF_PILOT_TYPES ? EXTRA_PILOT(id)->bio : lang_get(135 + id);
++    const nwo_pilot *p = nwo_pilot_get(id);
++    return p ? p->bio : lang_get(135 + id);
+ }
+ 
+ // What the speaker says to the target in the VS screen: the opening line, or the reply.
+ const char *pilot_get_vs_line(unsigned int speaker, unsigned int target, bool reply) {
+-    if(speaker >= PILOT_TRUMP) {
+-        return EXTRA_PILOT(speaker)->says[reply];
+-    }
+-    if(target >= PILOT_TRUMP) {
+-        return EXTRA_PILOT(target)->taunted[reply];
++    const nwo_pilot *p = nwo_pilot_get(speaker);
++    if(p) {
++        return p->says[reply];
+     }
+-    return lang_get((reply ? 870 : 749) + 11 * speaker + target);
++    return reply ? "This tournament ends with me." : "Your leaders send robots. I send armies.";
+ }
+ 
+-// The ending texts: part 1 with the pilot's face, part 2 after it.
++// The ending texts: part 1, then part 2.
+ const char *pilot_get_ending_text(unsigned int id, int part) {
+-    if(id >= PILOT_TRUMP && id < NUMBER_OF_PILOT_TYPES) {
+-        return EXTRA_PILOT(id)->ending[part == 1 ? 0 : 1];
+-    }
+-    return lang_get((part == 1 ? 993 : 1003) + id);
++    const nwo_pilot *p = nwo_pilot_get(id);
++    return p ? p->ending[part == 1 ? 0 : 1] : lang_get((part == 1 ? 993 : 1003) + id);
+ }
+ 
+ // Single player: the pilots to beat before Kreissack, as sp_wins bits (2 << pilot).
+@@ -157,10 +125,11 @@ int har_get_id(const char *name) {
+ }
+ 
+ const char *pilot_get_name(unsigned int id) {
+-    if(id >= NUMBER_OF_PILOT_TYPES) {
+-        return NULL;
++    const nwo_pilot *p = nwo_pilot_get(id);
++    if(p) {
++        return p->upper;
+     }
+-    return pilot_type_names[id];
++    return id == PILOT_KREISSACK ? pilot_type_names[0] : NULL;
+ }
+ 
+ const char *round_get_name(unsigned int id) {
+diff --git a/src/game/common_defines.h b/src/game/common_defines.h
+index cdf3edce..def12aec 100644
+--- a/src/game/common_defines.h
++++ b/src/game/common_defines.h
+@@ -97,9 +97,9 @@ enum
+     PILOT_COSSETTE,
+     PILOT_RAVEN,
+     PILOT_KREISSACK,
+-    PILOT_TRUMP, // web build: two more pilots, see game/utils/har_extended.c for their pictures
+-    PILOT_MUSK,
+-    NUMBER_OF_PILOT_TYPES,
++    // NWO: ids 0..9 and 11..24 are the 24 pilots of game/nwo_pilots.c (the names above are the
++    // original game's), 10 stays Major Kreissack
++    NUMBER_OF_PILOT_TYPES = 25,
+     // The original game's playable pilots, 0..9: Major Kreissack is not a playable character
+     NUMBER_OF_PLAYABLE_PILOT_TYPES = PILOT_KREISSACK,
+ };
+diff --git a/src/game/nwo_pilots.c b/src/game/nwo_pilots.c
+new file mode 100644
+index 00000000..388d34c2
+--- /dev/null
++++ b/src/game/nwo_pilots.c
+@@ -0,0 +1,139 @@
++#include "game/nwo_pilots.h"
++#include "game/common_defines.h"
++
++// OpenOMF 2097 NWO: the pilots are 24 figures of today's conflicts and diplomacy. In the
++// select grid's order; pilot ids skip 10, which stays Major Kreissack. Satire: the lines are
++// the characters' boasts, not facts. Stats sum to 30 like the original pilots'.
++// Colors are ALTPALS ramps (0 blue, 1 red, 2 green, 3 purple, 4 gold, 5 navy, 6 orange,
++// 7 silver, 8 grey, 9 dark slate, 10 pale blue, 11 tan, 12 rust, 13 yellow, 14 maroon,
++// 15 aqua). ai_style is the AI personality: an original pilot's (0..9), or 11 (grabber) and
++// 12 (sniper).
++static const nwo_pilot pilots[NWO_PILOTS] = {
++    {"Trump", "TRUMP", "US president and real estate mogul. Bought a robot because the arena had great ratings.",
++     {"Nobody fights better than me. Believe me.", "Tremendous robot. The best. Everybody says so."},
++     {"Trump renames the arena Trump Arena and calls it the greatest deal in history.",
++      "Kreissack's base becomes a golf resort with a robot driving range."},
++     PILOT_SEX_MALE, 15, 5, 10, {5, 1, 4}, 11},
++    {"Musk", "MUSK", "Engineer and billionaire whose satellites keep armies online. Plans a tournament on Mars.",
++     {"I've already simulated this fight. You lose.", "Interesting. Your robot needs a firmware update."},
++     {"Musk founds a company to build arena robots for everyone. Delivery: next year.",
++      "Kreissack's base becomes the launch pad of the first robot tournament on Mars."},
++     PILOT_SEX_MALE, 8, 13, 9, {9, 10, 0}, 12},
++    {"Meloni", "MELONI", "Italian prime minister. Quick, determined and among Kyiv's firmest backers in Europe.",
++     {"I am Giorgia. And I came here to win.", "Talk all you want. Italy doesn't back down."},
++     {"Meloni hosts the next world championship in Rome, with SAMP/T batteries around the arena.",
++      "Back home, parliament argues for a week about who paid for the robot."},
++     PILOT_SEX_FEMALE, 9, 14, 7, {2, 7, 1}, 7},
++    {"Macron", "MACRON", "French president. Champion of Europe's strategic autonomy; says aloud what others whisper.",
++     {"Strategic ambiguity is my favourite move.", "En meme temps... I win."},
++     {"Macron proposes a European robot army. Twenty-six capitals ask for a summit first.",
++      "He gives a two-hour speech on the victory. The robot falls asleep."},
++     PILOT_SEX_MALE, 10, 13, 7, {5, 7, 1}, 5},
++    {"Scholz", "SCHOLZ", "Former German chancellor. Patient, cautious, very hard to knock down.",
++     {"Let's not escalate this.", "I will consider your attack carefully."},
++     {"Scholz considers celebrating the victory. After careful consultation, he does, cautiously.",
++      "The Taurus stays in the hangar. Some things never change."},
++     PILOT_SEX_MALE, 8, 6, 16, {9, 1, 13}, 8},
++    {"Starmer", "STARMER", "British prime minister and former chief prosecutor. Never moves without a plan.",
++     {"I've read your file. All of it.", "Objection overruled."},
++     {"Starmer wins on points. The judges find no procedural error.",
++      "London sends Kreissack's robot to a museum, with a very detailed label."},
++     PILOT_SEX_MALE, 10, 9, 11, {5, 1, 7}, 3},
++    {"Von der Leyen", "LEYEN", "President of the European Commission. Never runs out of sanction packages.",
++     {"This is sanction package number twenty-one.", "Europe will respond. Unanimously, eventually."},
++     {"Von der Leyen announces a plan to rearm Europe's robot industry. Funding: to be negotiated.",
++      "Kreissack is added to the next sanctions list."},
++     PILOT_SEX_FEMALE, 9, 9, 12, {5, 13, 7}, 6},
++    {"Rutte", "RUTTE", "NATO secretary general. Coordinates allies, counts budgets, guards the eastern flank.",
++     {"Two percent of my robot is armour. Minimum.", "An attack on one is an attack on all."},
++     {"Rutte gets every ally to agree on one thing: the victory. Budgets are another meeting.",
++      "The arena joins NATO. Article 5 now covers robot fights."},
++     PILOT_SEX_MALE, 7, 10, 13, {5, 7, 6}, 8},
++    {"Xi", "XI", "President of China. A patient strategist of long games and supply chains.",
++     {"Time is on my side.", "Let us discuss a peace plan. Mine."},
++     {"Xi presents a twelve-point plan for robot peace. Everyone reads it differently.",
++      "Every robot in the next tournament is made in China."},
++     PILOT_SEX_MALE, 12, 6, 12, {1, 13, 1}, 4},
++    {"Kim", "KIM", "Leader of North Korea. Ammunition supplier with plenty of artillery to spare.",
++     {"I have shells to spare.", "Watch the sky."},
++     {"Kim celebrates with a parade of a hundred robots.", "State TV covers the victory for three days straight."},
++     PILOT_SEX_MALE, 16, 7, 7, {1, 5, 7}, 12},
++    {"Putin", "PUTIN", "President of Russia. Fights wars of attrition and never admits a step back.",
++     {"This is not a fight. It is a special operation.", "I can wait longer than you."},
++     {"Putin declares the arena historically Russian.", "State TV shows the victory. The defeats were not broadcast."},
++     PILOT_SEX_MALE, 13, 5, 12, {7, 5, 1}, 4},
++    {"Zelensky", "ZELENSKY", "President of Ukraine. Fast, stubborn, and never leaves the field.",
++     {"I need ammunition, not a ride.", "We will stand."},
++     {"Zelensky spends the prize on air defence, then asks the allies for more.",
++      "In Kyiv the robot is parked next to the captured tanks on display."},
++     PILOT_SEX_MALE, 7, 16, 7, {0, 13, 8}, 2},
++    {"Belousov", "BELOUSOV", "Russian defence minister. An economist who runs the war like a five-year plan.",
++     {"Production is up three hundred percent.", "Your robot is not cost effective."},
++     {"Belousov turns Kreissack's factories into ammunition plants.",
++      "His report says the victory came in under budget."},
++     PILOT_SEX_MALE, 11, 5, 14, {8, 5, 1}, 6},
++    {"Umerov", "UMEROV", "Ukrainian negotiator and former defence minister. Took drones to sea and to land.",
++     {"My drones are already behind you.", "Let's negotiate. After this round."},
++     {"Umerov signs a deal: robots for drones, drones for robots.", "A fleet of sea drones escorts the robot home."},
++     PILOT_SEX_MALE, 8, 14, 8, {0, 13, 9}, 12},
++    {"Lukashenko", "LUKASHENKO", "President of Belarus since 1994. Moscow's closest ally; loves hockey.",
++     {"I've been in charge since 1994.", "Nobody gets past my border."},
++     {"Lukashenko gives the prize to the potato harvest.",
++      "He celebrates with a hockey game. His team wins, as always."},
++     PILOT_SEX_MALE, 13, 6, 11, {1, 2, 7}, 11},
++    {"Netanyahu", "NETANYAHU", "Prime minister of Israel. Fights on many fronts at once.",
++     {"I fight on seven fronts. You are just one.", "Iron Dome is ready."},
++     {"Netanyahu calls an election to celebrate the win.", "The coalition argues for a month about the parade."},
++     PILOT_SEX_MALE, 14, 8, 8, {0, 7, 5}, 9},
++    {"Katz", "KATZ", "Israeli defence minister. Blunt, loud and always online.",
++     {"I'll post this fight live.", "Your threats don't scare me."},
++     {"Katz announces the victory online before the fight is over.", "Then he posts about it in three languages."},
++     PILOT_SEX_MALE, 12, 9, 9, {5, 7, 0}, 1},
++    {"Khamenei", "KHAMENEI", "Supreme Leader of Iran. Speaks rarely, plans slowly, keeps missiles in reserve.",
++     {"Patience is a weapon.", "My drones are already on their way."},
++     {"Khamenei gives a two-hour sermon on the victory. The robot listens politely.",
++      "The drone factories work overtime for the next tournament."},
++     PILOT_SEX_MALE, 9, 6, 15, {9, 2, 1}, 12},
++    {"Al-Houthi", "AL-HOUTHI", "Leader of Yemen's Houthi movement. Turned the Red Sea into a front line.",
++     {"No ship passes without my word.", "Your supply lines are mine."},
++     {"The Houthis reopen the Red Sea, but only for robots.",
++      "The container ships take the long way around Africa anyway."},
++     PILOT_SEX_MALE, 8, 15, 7, {2, 9, 1}, 7},
++    {"Erdogan", "ERDOGAN", "President of Turkey. Mediator and fighter at once; holds the keys to the Straits.",
++     {"I talk to everyone. Then I strike.", "The Bosphorus is closed to you."},
++     {"Erdogan hosts the robot peace talks. In Istanbul, of course.",
++      "Turkish drones film the victory from every angle."},
++     PILOT_SEX_MALE, 11, 10, 9, {1, 7, 1}, 5},
++    {"Bin Salman", "BIN SALMAN", "Crown prince of Saudi Arabia. Rich, ambitious and on speaking terms with everyone.",
++     {"Name your price.", "Oil, money and a very big robot."},
++     {"Bin Salman buys the arena and builds a futuristic city around it.",
++      "The next world championship is held in the desert, air conditioned."},
++     PILOT_SEX_MALE, 12, 9, 9, {2, 7, 11}, 1},
++    {"Al Thani", "AL THANI", "Emir of Qatar. The world's go-between, host of the talks nobody else can hold.",
++     {"Shall we talk first?", "Every war ends at a negotiating table."},
++     {"Tamim brokers a ceasefire between all the robots.", "Qatar hosts the next world championship in a new stadium."},
++     PILOT_SEX_MALE, 6, 12, 12, {14, 7, 3}, 0},
++    {"Al-Sisi", "AL-SISI", "President of Egypt. Guards Rafah and the Suez Canal.",
++     {"The canal is mine to open.", "You shall not cross Rafah."},
++     {"Al-Sisi opens the Suez Canal to victory parades only.", "A new capital is built for the robots."},
++     PILOT_SEX_MALE, 9, 7, 14, {1, 7, 9}, 8},
++    {"Orban", "ORBAN", "Hungarian leader and Europe's veto champion. Talks to Moscow, Beijing and Mar-a-Lago.",
++     {"I veto your attack.", "Brussels will hear about this."},
++     {"Orban vetoes the losers' appeal.", "He flies to Moscow, Beijing and Mar-a-Lago to tell everyone."},
++     PILOT_SEX_MALE, 8, 10, 12, {1, 7, 2}, 6},
++};
++
++int nwo_pilot_id(int position) {
++    return position < PILOT_KREISSACK ? position : position + 1;
++}
++
++int nwo_pilot_position(int pilot_id) {
++    return pilot_id < PILOT_KREISSACK ? pilot_id : pilot_id - 1;
++}
++
++const nwo_pilot *nwo_pilot_get(int pilot_id) {
++    if(pilot_id < 0 || pilot_id == PILOT_KREISSACK || pilot_id >= NUMBER_OF_PILOT_TYPES) {
++        return NULL;
++    }
++    return &pilots[nwo_pilot_position(pilot_id)];
++}
+diff --git a/src/game/nwo_pilots.h b/src/game/nwo_pilots.h
+new file mode 100644
+index 00000000..f77864a7
+--- /dev/null
++++ b/src/game/nwo_pilots.h
+@@ -0,0 +1,27 @@
++#ifndef NWO_PILOTS_H
++#define NWO_PILOTS_H
++
++// OpenOMF 2097 NWO: the 24 pilots, see nwo_pilots.c.
++#define NWO_PILOTS 24
++#define NWO_PILOTS_PER_PAGE 12
++
++typedef struct {
++    const char *name;     // as the texts spell it
++    const char *upper;    // as the score board spells it
++    const char *bio;
++    const char *says[2];  // in the VS screen: opening line, reply
++    const char *ending[2];
++    int sex;
++    int power, agility, endurance;
++    int colors[3];        // ALTPALS ramps: primary, secondary, tertiary
++    int ai_style;
++} nwo_pilot;
++
++// The pilot id at a position of the select grid (0..23), and back. Id 10 is Kreissack.
++int nwo_pilot_id(int position);
++int nwo_pilot_position(int pilot_id);
++
++// NULL for Kreissack.
++const nwo_pilot *nwo_pilot_get(int pilot_id);
++
++#endif // NWO_PILOTS_H
+diff --git a/src/game/scenes/cutscene.c b/src/game/scenes/cutscene.c
+index 1b1822ff..7574689d 100644
+--- a/src/game/scenes/cutscene.c
++++ b/src/game/scenes/cutscene.c
+@@ -2,6 +2,7 @@
+ 
+ #include "game/audio/music_tracker.h"
+ #include "game/game_state.h"
++#include "game/nwo_pilots.h"
+ #include "game/gui/text/text.h"
+ #include "game/scenes/cutscene.h"
+ #include "resources/ids.h"
+@@ -142,8 +143,8 @@ int cutscene_create(scene *scene) {
+             local->text_y = 157;
+             text_set_color(local->current, 0xFD);
+ 
+-            // Pilot face (the original ten have one; web build: Trump and Musk don't)
+-            if(p1->pilot->pilot_id >= PILOT_KREISSACK) {
++            // Pilot face: NWO's pilots have no ending art (END1.BK has the original ten's)
++            if(nwo_pilot_get(p1->pilot->pilot_id)) {
+                 break;
+             }
+             animation *ani = &bk_get_info(scene->bk_data, 3)->ani;
+diff --git a/src/game/scenes/melee.c b/src/game/scenes/melee.c
+index 3107690e..ce1efa4e 100644
+--- a/src/game/scenes/melee.c
++++ b/src/game/scenes/melee.c
+@@ -5,6 +5,7 @@
+ #include "formats/pilot.h"
+ #include "game/audio/music_tracker.h"
+ #include "game/game_state.h"
++#include "game/nwo_pilots.h"
+ #include "game/gui/menu_background.h"
+ #include "game/gui/progressbar.h"
+ #include "game/gui/text/text.h"
+@@ -48,17 +49,22 @@ typedef struct {
+ typedef struct {
+     int row;
+     int column;
++    int pilot_page; // NWO: the pilot grid has two pages of 12
+     bool done;
+ } cursor_data;
+ 
+-// Both pages have a sixth column: Nova and Ocelot on the robot page, Trump and Musk on the
+-// pilot page (top and bottom).
++// Both pages have a sixth column: Nova and Ocelot on the robot page. NWO: the pilot page is a
++// 6x2 grid on each of its two pages, 24 pilots (game/nwo_pilots.c).
+ #define EXTRA_COLUMN 5
+ #define EXTRA_HARS (NUMBER_OF_HAR_TYPES - HAR_NOVA)
++#define PILOT_POSITION(local, player)                                                                                  \
++    (local->cursor[player].pilot_page * NWO_PILOTS_PER_PAGE + 6 * local->cursor[player].row +                         \
++     local->cursor[player].column)
+ #define CURSOR_INDEX(local, player)                                                                                    \
+-    (local->cursor[player].column == EXTRA_COLUMN                                                                    \
+-         ? (local->page == HAR_SELECT ? HAR_NOVA : PILOT_TRUMP) + local->cursor[player].row                            \
+-         : 5 * local->cursor[player].row + local->cursor[player].column)
++    (local->page == PILOT_SELECT                                                                                       \
++         ? nwo_pilot_id(PILOT_POSITION(local, player))                                                                 \
++         : (local->cursor[player].column == EXTRA_COLUMN ? HAR_NOVA + local->cursor[player].row                        \
++                                                         : 5 * local->cursor[player].row + local->cursor[player].column))
+ #define CURSOR_A_DONE(local) (local->cursor[0].done)
+ #define CURSOR_B_DONE(local) (local->cursor[1].done)
+ #define CURSORS_MATCH(local) (CURSOR_INDEX(local, 0) == CURSOR_INDEX(local, 1))
+@@ -71,6 +77,9 @@ typedef struct {
+ #define HAR_CELL_Y(row) (115 + 42 * (row))
+ #define HAR_PANEL_Y 104
+ #define PILOT_PANEL_Y 106 // below the pilot's bio box
++// NWO palette use on the pilot page: each grid cell's icon colors, then the big faces'
++#define PILOT_SLOT_BASE(slot) (HAR_EXTENDED_BASE + 1 + PILOT_PICTURE_COLORS * (slot))
++#define PILOT_FACE_BASE(player) (PILOT_SLOT_BASE(NWO_PILOTS_PER_PAGE) + 64 * (player))
+ 
+ typedef enum
+ {
+@@ -94,6 +103,8 @@ typedef struct {
+     object big_portrait_2;
+     object player2_placeholder;
+     surface pilot_panel; // six column pilot grid, unselected pilots dimmed
++    int pilot_page_shown; // NWO: the pilot grid's page on screen
++    int pilot_panel_page; // ... and the one pilot_panel was built for
+     surface har_panel; // six column robot grid, unselected robots in grayscale
+ 
+     portrait pilot_portraits[NUMBER_OF_PILOT_TYPES]; // Kreissack's (10) stays empty
+@@ -203,6 +214,9 @@ static void set_cursor_colors(int a_ticks, int b_ticks, bool a_done, bool b_done
+     vga_state_set_base_palette_index(VIOLET_CURSOR_INDEX, &violet_cursor_color);
+ }
+ 
++static void show_pilot_page(scene *scene);
++static void show_pilot_faces(scene *scene);
++
+ static void load_pilot_portraits_palette(scene *scene) {
+     vga_palette *bk_pal = bk_get_palette(scene->bk_data, 0);
+     // copy and dim for unselected pilot portraits
+@@ -215,7 +229,7 @@ static void load_pilot_portraits_palette(scene *scene) {
+         bk_pal->colors[idx] = src;
+     }
+     vga_state_set_base_palette_from_range(bk_pal, 0x00, 0x00, 0x60);
+-    pilot_pictures_load_colors(); // Trump's and Musk's colors, and their dimmed icons' colors
++    show_pilot_page(scene);
+ }
+ 
+ static bool check_pilot_stat_cheat(scene *scene, int player_id) {
+@@ -367,6 +381,7 @@ static void load_pilot_stats(scene *scene, int player_id) {
+         text_set_from_c(local->player_bio[player_id], pilot_get_lang_bio(pilot_id));
+         text_set_from_c(local->player_name[player_id], pilot_get_lang_name(pilot_id));
+         object_select_sprite(big_portrait, pilot_id);
++        show_pilot_faces(scene);
+     }
+ 
+     player->pilot->endurance = p_a.endurance;
+@@ -406,6 +421,7 @@ void handle_action(scene *scene, int player, int action) {
+ 
+     int old_row = *row;
+     int old_column = *column;
++    int old_page = local->cursor[player].pilot_page;
+     int last_column = EXTRA_COLUMN;
+ 
+     switch(action) {
+@@ -418,6 +434,8 @@ void handle_action(scene *scene, int player, int action) {
+                 *column = last_column;
+                 if(local->page == PILOT_SELECT) {
+                     local->cheat_pilot_stats[player] |= *row + 1;
++                    // NWO: past the edge, the other page
++                    local->cursor[player].pilot_page ^= 1;
+                 }
+             }
+             reset_cursor_blinky(local, player);
+@@ -428,6 +446,7 @@ void handle_action(scene *scene, int player, int action) {
+                 *column = 0;
+                 if(local->page == PILOT_SELECT) {
+                     local->cheat_pilot_stats[player] |= *row + 1;
++                    local->cursor[player].pilot_page ^= 1;
+                 }
+             }
+             reset_cursor_blinky(local, player);
+@@ -516,6 +535,7 @@ void handle_action(scene *scene, int player, int action) {
+                     local->pilot_id_a = CURSOR_INDEX(local, 0);
+                     local->pilot_id_b = CURSOR_INDEX(local, 1);
+                     local->page = HAR_SELECT;
++                    show_pilot_faces(scene); // in the portrait colors now
+                     update_har(scene, 0);
+                     update_har(scene, 1);
+ 
+@@ -577,7 +597,11 @@ void handle_action(scene *scene, int player, int action) {
+             break;
+     }
+ 
+-    if(old_row != *row || old_column != *column) {
++    if(local->page == PILOT_SELECT && local->cursor[player].pilot_page != local->pilot_page_shown) {
++        local->pilot_page_shown = local->cursor[player].pilot_page; // the page follows the cursor
++        show_pilot_page(scene);
++    }
++    if(old_row != *row || old_column != *column || old_page != local->cursor[player].pilot_page) {
+         // column 0..5 → panning -50..+50
+         int panning = (*column) * 100 / 5 - 50;
+         audio_play_sound_simple(19, panning);
+@@ -609,16 +633,18 @@ void handle_action(scene *scene, int player, int action) {
+ static void restore_cursors_to(melee_local *local, unsigned a, unsigned b) {
+     unsigned ids[2] = {a, b};
+     for(int i = 0; i < 2; i++) {
+-        // note: a/b can be 10 or more (HAR_NOVA, HAR_OCELOT, PILOT_KREISSACK, PILOT_TRUMP, PILOT_MUSK)
+-        // when returning from VS. The robot page has cells for Nova and Ocelot, the pilot page for
+-        // Trump and Musk; it has none for Kreissack, which the original game handles surprisingly
+-        // elegantly. If we try to naively do that, our pointers all explode.
++        // note: a/b can be 10 or more (HAR_NOVA, HAR_OCELOT, PILOT_KREISSACK, the NWO pilots) when
++        // returning from VS. The robot page has cells for Nova and Ocelot, the pilot pages for the
++        // 24 pilots; none for Kreissack, which the original game handles surprisingly elegantly.
++        // If we try to naively do that, our pointers all explode.
+         if(ids[i] >= HAR_NOVA && local->page == HAR_SELECT) {
+             local->cursor[i].column = EXTRA_COLUMN;
+             local->cursor[i].row = ids[i] - HAR_NOVA;
+-        } else if(ids[i] >= PILOT_TRUMP && local->page == PILOT_SELECT) {
+-            local->cursor[i].column = EXTRA_COLUMN;
+-            local->cursor[i].row = ids[i] - PILOT_TRUMP;
++        } else if(local->page == PILOT_SELECT) {
++            int position = nwo_pilot_position(ids[i] == PILOT_KREISSACK ? 0 : ids[i]);
++            local->cursor[i].pilot_page = position / NWO_PILOTS_PER_PAGE;
++            local->cursor[i].row = position % NWO_PILOTS_PER_PAGE / 6;
++            local->cursor[i].column = position % 6;
+         } else {
+             unsigned id = ids[i] == HAR_NOVA ? HAR_FLAIL : ids[i];
+             local->cursor[i].column = id % 5;
+@@ -668,6 +694,7 @@ void melee_input_tick(scene *scene) {
+                 // restore the player selection
+                 local->page = PILOT_SELECT;
+                 restore_cursors_to(local, local->pilot_id_a, local->pilot_id_b);
++                local->pilot_page_shown = local->cursor[0].pilot_page;
+                 load_pilot_portraits_palette(scene);
+             } else if(scene->gs->net_mode == NET_MODE_LOBBY) {
+                 // came from the network lobby (challenge arena); go back there
+@@ -681,6 +708,9 @@ void melee_input_tick(scene *scene) {
+ }
+ 
+ static void draw_highlight(const melee_local *local, const cursor_data *cursor, int offset) {
++    if(local->page == PILOT_SELECT && cursor->pilot_page != local->pilot_page_shown) {
++        return; // on the other page
++    }
+     video_draw_offset(&local->har_hilight, HAR_CELL_X(cursor->column), HAR_CELL_Y(cursor->row), offset, 255);
+ }
+ 
+@@ -759,12 +789,19 @@ static void render_pilot_select(melee_local *local, bool player2_is_selectable)
+         text_draw(local->titles[0], 160, 97);
+     }
+ 
++    if(local->pilot_panel_page != local->pilot_page_shown) {
++        return; // not built yet
++    }
+     video_draw(&local->pilot_panel, 0, PILOT_PANEL_Y);
+     render_highlights(local, player2_is_selectable);
+-    render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 0), -1);
++    if(local->cursor[0].pilot_page == local->pilot_page_shown) {
++        render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 0), -1);
++    }
+     object_render(&local->big_portrait_1);
+     if(player2_is_selectable) {
+-        render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 1), -1);
++        if(local->cursor[1].pilot_page == local->pilot_page_shown) {
++            render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 1), -1);
++        }
+         object_render(&local->big_portrait_2);
+     }
+ }
+@@ -912,50 +949,48 @@ static void load_af_portrait(melee_local *local, int har_id, vga_pixel cell_colo
+     }
+ }
+ 
+-// The pilot grid, six columns like the robots': the original ten icons narrowed around
+-// their middle, Trump and Musk in the sixth column, and the panel of unselected ones.
++// NWO: the pilot grid, two pages of six columns like the robots'. Each cell's icon draws with
++// that cell's block of the extended palette; the blocks get the shown page's colors.
+ static void load_pilot_portraits(scene *scene, melee_local *local) {
+-    animation *icons = &bk_get_info(scene->bk_data, 3)->ani;
+-    for(int i = 0; i < NUMBER_OF_PILOT_TYPES; i++) {
+-        sprite *current = i == PILOT_KREISSACK ? NULL : animation_get_sprite(icons, i);
+-        if(current == NULL) {
+-            continue;
+-        }
+-        portrait *target = &local->pilot_portraits[i];
+-        int col = i >= PILOT_TRUMP ? EXTRA_COLUMN : i % 5;
+-        int row = i >= PILOT_TRUMP ? i - PILOT_TRUMP : i / 5;
+-        target->x = HAR_CELL_X(col);
+-        target->y = HAR_CELL_Y(row);
+-
+-        // Copy the face image in full color (shown when selected), centered in the narrower cell
+-        const surface *icon = current->data;
++    for(int position = 0; position < NWO_PILOTS; position++) {
++        int id = nwo_pilot_id(position);
++        int slot = position % NWO_PILOTS_PER_PAGE;
++        portrait *target = &local->pilot_portraits[id];
++        target->x = HAR_CELL_X(slot % 6);
++        target->y = HAR_CELL_Y(slot / 6);
+         surface_create(&target->enabled, HAR_CELL_W, 36);
+-        surface_set_transparency(&target->enabled, icon->transparent);
+-        int dx = (icon->w - HAR_CELL_W) / 2;
+-        for(int y = 0; y < 36 && y < icon->h; y++) {
+-            for(int x = 0; x < HAR_CELL_W; x++) {
+-                int sx = x + dx;
+-                target->enabled.data[y * HAR_CELL_W + x] =
+-                    sx >= 0 && sx < icon->w ? icon->data[y * icon->w + sx] : icon->transparent;
++        surface_create(&target->disabled, HAR_CELL_W, 36);
++        surface icon = {0};
++        if(pilot_picture_draw(&icon, id, true, PILOT_SLOT_BASE(slot))) {
++            // centered in the cell
++            int dx = (icon.w - HAR_CELL_W) / 2;
++            for(int y = 0; y < 36 && y < icon.h; y++) {
++                for(int x = 0; x < HAR_CELL_W; x++) {
++                    int sx = x + dx;
++                    target->enabled.data[y * HAR_CELL_W + x] = sx >= 0 && sx < icon.w ? icon.data[y * icon.w + sx] : 0;
++                }
+             }
++            omf_free(icon.data);
+         }
+-
+-        // Copy the face image in dimmed color (shown when not selected)
+-        surface_create_from(&target->disabled, &target->enabled);
+-        if(i >= PILOT_TRUMP) {
+-            pilot_pictures_dim(&target->disabled);
+-        } else {
+-            surface_compress_index_blocks(&target->disabled, 0x60, 0xA0, 64, 16);
+-            surface_compress_index_blocks(&target->disabled, 0xA0, 0xD0, 8, 3);
+-            surface_compress_index_blocks(&target->disabled, 0xD0, 0xE0, 16, 3);
+-            surface_compress_index_blocks(&target->disabled, 0xE0, 0xF0, 8, 2);
+-            surface_compress_remap(&target->disabled, 0xF0, 0xF7, 0xB6, 3);
+-        }
++        surface_set_transparency(&target->enabled, -1);
+     }
++    local->pilot_panel_page = -1;
++}
+ 
+-    // the unselected icons: the original sheet (dimmed by the palette), re-cut to six columns
++// The pilot page on screen: its cells' colors, and its panel of unselected (darker) icons.
++static void show_pilot_page(scene *scene) {
++    melee_local *local = scene_get_userdata(scene);
++    int page = local->pilot_page_shown;
++    for(int slot = 0; slot < NWO_PILOTS_PER_PAGE; slot++) {
++        pilot_picture_load_colors(nwo_pilot_id(page * NWO_PILOTS_PER_PAGE + slot), PILOT_SLOT_BASE(slot));
++    }
++    show_pilot_faces(scene);
++    if(local->pilot_panel_page == page || local->pilot_portraits[0].enabled.data == NULL) {
++        return;
++    }
+     const surface *bg = &scene->bk_data->background;
+-    const sprite *sheet = animation_get_sprite(&bk_get_info(scene->bk_data, 0)->ani, 0);
++    const vga_palette *pal = bk_get_palette(scene->bk_data, 0);
++    surface_free(&local->pilot_panel);
+     surface_create(&local->pilot_panel, 320, 200 - PILOT_PANEL_Y);
+     surface_set_transparency(&local->pilot_panel, -1);
+     for(int y = 0; y < local->pilot_panel.h; y++) {
+@@ -963,17 +998,41 @@ static void load_pilot_portraits(scene *scene, melee_local *local) {
+             local->pilot_panel.data[y * 320 + x] = bg->data[(PILOT_PANEL_Y + y) * bg->w + har_panel_source_x(x)];
+         }
+     }
+-    for(int i = 0; i < 10; i++) {
+-        surface cell;
+-        surface_create_from_surface(&cell, HAR_CELL_W, 36, 62 * (i % 5) + 2, 42 * (i / 5), sheet->data);
+-        surface_set_transparency(&cell, -1);
+-        blit_opaque(&local->pilot_panel, &cell, HAR_CELL_X(i % 5), HAR_CELL_Y(i / 5) - PILOT_PANEL_Y);
+-        surface_free(&cell);
+-    }
+-    for(int i = PILOT_TRUMP; i < NUMBER_OF_PILOT_TYPES; i++) {
+-        portrait *target = &local->pilot_portraits[i];
+-        if(target->disabled.data) {
+-            blit_opaque(&local->pilot_panel, &target->disabled, target->x, target->y - PILOT_PANEL_Y);
++    for(int slot = 0; slot < NWO_PILOTS_PER_PAGE; slot++) {
++        int id = nwo_pilot_id(page * NWO_PILOTS_PER_PAGE + slot);
++        surface dim = {0};
++        // the scene's fixed colors (0x60..0xEF), darkened like the original unselected faces
++        pilot_picture_draw_fixed(&dim, id, pal, 0x60, 0xEF, 0.5f);
++        if(dim.data) {
++            surface cell;
++            surface_create(&cell, HAR_CELL_W, 36);
++            int dx = (dim.w - HAR_CELL_W) / 2;
++            for(int y = 0; y < 36 && y < dim.h; y++) {
++                for(int x = 0; x < HAR_CELL_W; x++) {
++                    int sx = x + dx;
++                    cell.data[y * HAR_CELL_W + x] = sx >= 0 && sx < dim.w ? dim.data[y * dim.w + sx] : 0;
++                }
++            }
++            surface_set_transparency(&cell, -1);
++            blit_opaque(&local->pilot_panel, &cell, HAR_CELL_X(slot % 6), HAR_CELL_Y(slot / 6) - PILOT_PANEL_Y);
++            surface_free(&cell);
++            omf_free(dim.data);
++        }
++    }
++    local->pilot_panel_page = page;
++}
++
++// The big faces at the top: the pilot page's own colors, or the players' portrait colors on the
++// robot page (where the robots' extended colors take the pilot page's).
++static void show_pilot_faces(scene *scene) {
++    melee_local *local = scene_get_userdata(scene);
++    animation *faces = &bk_get_info(scene->bk_data, 4)->ani;
++    for(int p = 0; p < 2; p++) {
++        int id = p == 0 ? local->pilot_id_a : local->pilot_id_b;
++        sprite *face = animation_get_sprite(faces, id);
++        int base = local->page == PILOT_SELECT ? PILOT_FACE_BASE(p) : PILOT_PORTRAIT_BASE + HAR_EXTENDED_STRIDE * p;
++        if(face && face->owned && pilot_picture_draw(face->data, id, false, base)) {
++            pilot_picture_load_colors(id, base);
+         }
+     }
+ }
+@@ -1096,9 +1155,10 @@ int melee_create(scene *scene) {
+         palette_load_player_colors(&player2->pilot->palette, 1);
+     } else {
+         local->page = PILOT_SELECT;
+-        local->pilot_id_a = PILOT_CRYSTAL;
+-        local->pilot_id_b = PILOT_SHIRRO;
++        local->pilot_id_a = nwo_pilot_id(0);
++        local->pilot_id_b = nwo_pilot_id(1);
+         restore_cursors_to(local, local->pilot_id_a, local->pilot_id_b);
++        local->pilot_page_shown = local->cursor[0].pilot_page;
+ 
+         load_pilot_portraits_palette(scene);
+     }
+@@ -1160,10 +1220,13 @@ int melee_create(scene *scene) {
+     for(int i = 0; i < HAR_NOVA; i++) {
+         har_upscale_animation(&bk_get_info(scene->bk_data, 18 + i)->ani);
+     }
+-    // Trump's and Musk's pictures, in their own colors
+-    pilot_pictures_apply(&bk_get_info(scene->bk_data, 4)->ani, &bk_get_info(scene->bk_data, 3)->ani);
+     load_pilot_portraits(scene, local);
+     load_har_portraits(scene, local);
++    if(local->page == PILOT_SELECT) {
++        show_pilot_page(scene);
++    } else {
++        show_pilot_faces(scene);
++    }
+     load_hars(scene, local, player2->selectable);
+ 
+     // Load the big faces on the top corners
+diff --git a/src/game/scenes/vs.c b/src/game/scenes/vs.c
+index fb1ef4e5..7ae3b6aa 100644
+--- a/src/game/scenes/vs.c
++++ b/src/game/scenes/vs.c
+@@ -587,7 +587,17 @@ int vs_create(scene *scene) {
+         object *player1_portrait = omf_calloc(1, sizeof(object));
+         object_create(player1_portrait, scene->gs, vec2i_create(-10, 150), vec2f_create(0, 0));
+         ani = &bk_get_info(scene->bk_data, 4)->ani;
+-        pilot_pictures_apply(ani, NULL); // Trump's and Musk's faces, in their own colors
++        // NWO: the pilots' faces, each in its player's portrait colors (the same pilot on both
++        // sides shares one sprite, drawn for player 2; both players' entries get its colors)
++        for(int p = 0; p < 2; p++) {
++            game_player *gp = game_state_get_player(scene->gs, p);
++            sprite *face = gp->pilot ? animation_get_sprite(ani, gp->pilot->pilot_id) : NULL;
++            if(face && face->owned) {
++                int base = PILOT_PORTRAIT_BASE + HAR_EXTENDED_STRIDE * p;
++                pilot_picture_draw(face->data, gp->pilot->pilot_id, false, base);
++                pilot_picture_load_colors(gp->pilot->pilot_id, base);
++            }
++        }
+         if(player1->chr) {
+             object_set_sprite_override(player1_portrait, 1);
+             sprite *sp = omf_calloc(1, sizeof(sprite));
+diff --git a/src/game/utils/har_extended.c b/src/game/utils/har_extended.c
+index 904cae00..e2be226b 100644
+--- a/src/game/utils/har_extended.c
++++ b/src/game/utils/har_extended.c
+@@ -300,15 +300,6 @@ static const pilot_pictures *pictures_get(int pilot_id) {
+                : NULL;
+ }
+ 
+-// The block of 64 entries a pilot's pictures use in the menus, and its darker copy's.
+-static int menu_block(int pilot_id) {
+-    return PILOT_PORTRAIT_BASE + HAR_EXTENDED_STRIDE * ((pilot_id - PILOT_TRUMP) & 1);
+-}
+-
+-static int dim_block(int pilot_id) {
+-    return HAR_EXTENDED_BASE + 1 + PICTURE_COLORS * (pilot_id - PILOT_TRUMP);
+-}
+-
+ // A surface with the picture's pixels as entries from `base` on.
+ static void picture_to_surface(surface *sur, const picture *pic, int base) {
+     if(sur->w != pic->w || sur->h != pic->h) {
+@@ -321,46 +312,50 @@ static void picture_to_surface(surface *sur, const picture *pic, int base) {
+         sur->data[i] = pic->px[i] ? base + pic->px[i] - 1 : 0;
+     }
+     sur->transparent = 0;
++    surface_mark_changed(sur);
+ }
+ 
+-void pilot_pictures_load_colors(void) {
+-    for(int id = PILOT_TRUMP; id < NUMBER_OF_PILOT_TYPES; id++) {
+-        const pilot_pictures *pics = pictures_get(id);
+-        if(!pics) {
+-            continue;
+-        }
+-        vga_state_set_base_palette_range(menu_block(id), pics->color_count, (vga_color *)pics->colors);
+-        vga_color dim[PICTURE_COLORS];
+-        for(int i = 0; i < pics->color_count; i++) {
+-            dim[i] = (vga_color){pics->colors[i].r / 2, pics->colors[i].g / 2, pics->colors[i].b / 2};
+-        }
+-        vga_state_set_base_palette_range(dim_block(id), pics->color_count, dim);
++bool pilot_picture_draw(surface *sur, int pilot_id, bool icon, int base) {
++    const pilot_pictures *pics = pictures_get(pilot_id);
++    if(!pics) {
++        return false;
+     }
++    picture_to_surface(sur, icon ? &pics->icon : &pics->face, base);
++    return true;
+ }
+ 
+-void pilot_pictures_apply(animation *faces, animation *icons) {
+-    for(int id = PILOT_TRUMP; id < NUMBER_OF_PILOT_TYPES; id++) {
+-        const pilot_pictures *pics = pictures_get(id);
+-        sprite *face = faces ? animation_get_sprite(faces, id) : NULL;
+-        sprite *icon = icons ? animation_get_sprite(icons, id) : NULL;
+-        if(pics && face) {
+-            picture_to_surface(face->data, &pics->face, menu_block(id));
+-        }
+-        if(pics && icon) {
+-            picture_to_surface(icon->data, &pics->icon, menu_block(id));
+-        }
++void pilot_picture_load_colors(int pilot_id, int base) {
++    const pilot_pictures *pics = pictures_get(pilot_id);
++    if(pics) {
++        vga_state_set_base_palette_range(base, min2(pics->color_count, PILOT_PICTURE_COLORS),
++                                         (vga_color *)pics->colors);
+     }
+-    pilot_pictures_load_colors();
+ }
+ 
+-void pilot_pictures_dim(surface *icon) {
+-    for(int id = PILOT_TRUMP; id < NUMBER_OF_PILOT_TYPES; id++) {
+-        int from = menu_block(id), to = dim_block(id);
+-        for(int i = 0; i < icon->w * icon->h; i++) {
+-            if(icon->data[i] >= from && icon->data[i] < from + PICTURE_COLORS) {
+-                icon->data[i] = to + icon->data[i] - from;
++void pilot_picture_draw_fixed(surface *sur, int pilot_id, const vga_palette *pal, int first, int last,
++                              float brightness) {
++    const pilot_pictures *pics = pictures_get(pilot_id);
++    if(!pics) {
++        return;
++    }
++    vga_pixel map[PICTURE_COLORS + 1] = {0};
++    for(int k = 0; k < pics->color_count; k++) {
++        int r = pics->colors[k].r * brightness, g = pics->colors[k].g * brightness, b = pics->colors[k].b * brightness;
++        int best = first, best_d = 1 << 30;
++        for(int i = first; i <= last; i++) {
++            int dr = pal->colors[i].r - r, dg = pal->colors[i].g - g, db = pal->colors[i].b - b;
++            int d = 3 * dr * dr + 4 * dg * dg + 2 * db * db;
++            if(d < best_d) {
++                best_d = d;
++                best = i;
+             }
+         }
++        map[k + 1] = best;
++    }
++    const picture *pic = &pics->icon;
++    picture_to_surface(sur, pic, 0);
++    for(int i = 0; i < pic->w * pic->h; i++) {
++        sur->data[i] = map[pic->px[i]];
+     }
+ }
+ 
+diff --git a/src/game/utils/har_extended.h b/src/game/utils/har_extended.h
+index b4d0236f..6a18f9b4 100644
+--- a/src/game/utils/har_extended.h
++++ b/src/game/utils/har_extended.h
+@@ -36,25 +36,26 @@ int har_sprite_scale(void);
+ // portrait in VS.BK: moves those bytes to the extended palette.
+ void har_extended_shift_surface(surface *sur);
+ 
+-// The pilot's face from the select screen (MELEE.BK), for the arena when the pilot has no
+-// tournament photo: its colors go to the player's portrait entries. NULL if unavailable.
++// The pilot's face, for the arena when the pilot has no tournament photo: its colors go to
++// the player's portrait entries. NULL if unavailable.
+ sprite *pilot_portrait_create(int pilot_id, int player);
+ 
+-// The pilots the original game doesn't have (Trump, Musk) bring their pictures in their own
+-// colors (PILOTS.EXT). In the menus and the VS screen each has a block of 64 entries of the
+-// extended palette: the portrait entries, player 1's for the first and player 2's for the
+-// second (no menu needs them for a player then). The unselected icons' darker copies use
+-// player 1's HAR entries, free on the pilot page.
++// NWO: the pilots' pictures come in their own colors (PILOTS.EXT, up to 32 each), drawn
++// from any block of the extended palette: the select screen gives each grid cell one, the
++// other scenes the players' portrait entries above.
++#define PILOT_PICTURE_COLORS 32
+ 
+-// Puts the extra pilots' pictures into these animations of a menu BK (face or icon per
+-// pilot id; either may be NULL), and loads their colors.
+-void pilot_pictures_apply(animation *faces, animation *icons);
++// Sets the surface to the pilot's face (or icon) with its colors from entry `base` on.
++// False when the pilot has no picture.
++bool pilot_picture_draw(surface *sur, int pilot_id, bool icon, int base);
+ 
+-// For an icon from pilot_pictures_apply(): the darker copy the select screen shows unselected.
+-void pilot_pictures_dim(surface *icon);
++// Loads the pilot's picture colors into the palette from entry `base` on.
++void pilot_picture_load_colors(int pilot_id, int base);
+ 
+-// Loads the extra pilots' colors, and the darker ones of their icons.
+-void pilot_pictures_load_colors(void);
++// Sets the surface to the pilot's icon in the closest of the palette's entries first..last,
++// darkened: the unselected icons of the select screen.
++void pilot_picture_draw_fixed(surface *sur, int pilot_id, const vga_palette *pal, int first, int last,
++                              float brightness);
+ 
+ // Loads the pilot's colors, and the HAR's extended colors, into the player's palette ranges.
+ void har_load_player_colors(const vga_palette *pilot_colors, unsigned int har_id, int player);
+diff --git a/src/resources/pilots.c b/src/resources/pilots.c
+index 56994129..0f350c6d 100644
+--- a/src/resources/pilots.c
++++ b/src/resources/pilots.c
+@@ -1,11 +1,23 @@
+ 
+ #include "resources/pilots.h"
+ #include "game/common_defines.h"
++#include "game/nwo_pilots.h"
+ 
+ void pilot_get_info(pilot *pilot, int id) {
+     // TODO read this from MASTER.DAT
+     // XXX the colors are eyeballed
+     pilot->sex = PILOT_SEX_MALE;
++    const nwo_pilot *nwo = nwo_pilot_get(id); // NWO: every pilot but Kreissack
++    if(nwo) {
++        pilot->power = nwo->power;
++        pilot->agility = nwo->agility;
++        pilot->endurance = nwo->endurance;
++        pilot->color_1 = nwo->colors[0];
++        pilot->color_2 = nwo->colors[1];
++        pilot->color_3 = nwo->colors[2];
++        pilot->sex = nwo->sex;
++        return;
++    }
+     switch(id) {
+         case PILOT_CRYSTAL:
+             pilot->power = 5;
+@@ -98,21 +110,5 @@ void pilot_get_info(pilot *pilot, int id) {
+             pilot->color_2 = 1;
+             pilot->color_3 = 15;
+             break;
+-        case PILOT_TRUMP: // web build: navy, red and gold, like the suit and the tie
+-            pilot->power = 15;
+-            pilot->agility = 5;
+-            pilot->endurance = 10;
+-            pilot->color_1 = 5;
+-            pilot->color_2 = 1;
+-            pilot->color_3 = 4;
+-            break;
+-        case PILOT_MUSK: // web build: graphite, silver and blue
+-            pilot->power = 8;
+-            pilot->agility = 13;
+-            pilot->endurance = 9;
+-            pilot->color_1 = 9;
+-            pilot->color_2 = 10;
+-            pilot->color_3 = 0;
+-            break;
+     }
+ }
+diff --git a/src/video/surface.c b/src/video/surface.c
+index 44598744..93d848d7 100644
+--- a/src/video/surface.c
++++ b/src/video/surface.c
+@@ -17,6 +17,10 @@ void surface_create(surface *sur, int w, int h) {
+     sur->transparent = 0;
+ }
+ 
++void surface_mark_changed(surface *sur) {
++    sur->guid = guid++;
++}
++
+ void surface_create_from_data(surface *sur, int w, int h, const unsigned char *src) {
+     surface_create(sur, w, h);
+     for(int i = 0; i < w * h; i++) {
+diff --git a/src/video/surface.h b/src/video/surface.h
+index 81eadad7..aa3a099b 100644
+--- a/src/video/surface.h
++++ b/src/video/surface.h
+@@ -31,6 +31,8 @@ void surface_create_from_flip_scale(surface *sur, int w, int h, const uint16_t *
+ void surface_multiply_decal(surface *src, const surface *decal, int dst_x, int dst_y);
+ void surface_create_from_surface(surface *sur, int w, int h, int src_x, int src_y, const surface *src);
+ void surface_free(surface *sur);
++// After changing a surface's pixels directly: renderers cache textures by guid.
++void surface_mark_changed(surface *sur);
+ void surface_clear(surface *sur);
+ void surface_set_pixel(surface *sur, int x, int y, vga_index color);
+ void surface_sub(surface *dst, const surface *src, int dst_x, int dst_y, int src_x, int src_y, int w, int h,

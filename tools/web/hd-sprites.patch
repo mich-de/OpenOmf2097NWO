@@ -1,0 +1,421 @@
+--- a/src/game/protos/intersect.c
++++ b/src/game/protos/intersect.c
+@@ -1,5 +1,6 @@
+ #include "game/protos/intersect.h"
+ #include "game/utils/har_extended.h"
++#include "utils/miscmath.h"
+ 
+ /**
+  * \brief Checks if objects hitboxes intersect.
+@@ -128,11 +129,13 @@
+             continue;
+         }
+ 
+-        // Get hitpixel
++        // Get hitpixel (an HD sprite has more pixels than its size: scale into them)
+         surface *sfc = target_sprite->data;
+-        int hitpoint = (ycoord * sfc->w) + xcoord;
++        int scale = sfc->w / max2(sfc->render_w, 1);
++        int px = xcoord * scale, py = ycoord * scale;
++        int hitpoint = (py * sfc->w) + px;
+         if(target_dir == OBJECT_FACE_LEFT) {
+-            hitpoint = (ycoord * sfc->w) + (sfc->w - xcoord);
++            hitpoint = (py * sfc->w) + (sfc->w - px);
+         }
+         // Data bounds check
+         if(hitpoint >= sfc->w * sfc->h) {
+--- a/src/game/protos/scene.c
++++ b/src/game/protos/scene.c
+@@ -104,7 +104,7 @@
+         return 1;
+     }
+ 
+-    har_extended_load_sprites(scene->af_data[player_id], player->pilot->har_id);
++    har_prepare_sprites(scene->af_data[player_id], player->pilot->har_id);
+     log_debug("Loaded HAR %s (%s).", har_get_name(player->pilot->har_id), get_resource_name(resource_id));
+     return 0;
+ }
+--- a/src/game/scenes/melee.c
++++ b/src/game/scenes/melee.c
+@@ -1093,7 +1093,11 @@
+             log_error("Unable to load %s's AF file", har_get_name(HAR_NOVA + i));
+             return 1;
+         }
+-        har_extended_load_sprites(&local->extra_af[i], HAR_NOVA + i);
++        har_prepare_sprites(&local->extra_af[i], HAR_NOVA + i);
++    }
++    // the robots' select animations, as fine as their fight sprites
++    for(int i = 0; i < HAR_NOVA; i++) {
++        har_upscale_animation(&bk_get_info(scene->bk_data, 18 + i)->ani);
+     }
+     load_pilot_portraits(scene, local);
+     load_har_portraits(scene, local);
+--- a/src/game/scenes/vs.c
++++ b/src/game/scenes/vs.c
+@@ -564,6 +564,7 @@
+     if(animation_get_sprite_count(ani) > HAR_OCELOT) {
+         har_extended_shift_surface(animation_get_sprite(ani, HAR_OCELOT)->data);
+     }
++    har_upscale_animation(ani);
+     object *player1_har = omf_calloc(1, sizeof(object));
+     object_create(player1_har, scene->gs, vec2i_create(160, 0), vec2f_create(0, 0));
+     object_set_animation(player1_har, ani);
+--- a/src/game/utils/har_extended.c
++++ b/src/game/utils/har_extended.c
+@@ -8,13 +8,20 @@
+ #include "resources/sprite.h"
+ #include "utils/allocator.h"
+ #include "utils/log.h"
++#include "utils/miscmath.h"
+ #include "video/vga_state.h"
+ #include <string.h>
++#include <zlib.h>
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ 
+ // <AF name>.X16, written by tools/web/ocelot (all values little endian):
+-//   "OMFX16" 0 1                  magic, version
++//   "OMFX16" 0 2                  magic, version
++//   u32 size, then zlib data of that size, holding:
+ //   u16 color count, then RGB     the colors of pixels 257, 258, ...
+-//   u16 frame count, then frames: u8 move, u8 sprite, u16 width, u16 height,
++//   u16 frame count, then frames: u8 move, u8 sprite, u8 scale (1, 2 or 4: pixels per game
++//                                 pixel), u16 width, u16 height (in pixels),
+ //                                 runs of (u16 transparent pixels, u16 n, n u16 pixels)
+ //                                 until width * height pixels are covered
+ // Pixel values below 256 keep meaning the shared palette (effects, the fire).
+@@ -22,6 +29,7 @@
+ typedef struct {
+     uint8_t move;
+     uint8_t sprite;
++    uint8_t scale;
+     uint16_t w;
+     uint16_t h;
+     vga_pixel *pixels;
+@@ -37,40 +45,83 @@
+ 
+ static x16_file x16_files[NUMBER_OF_HAR_TYPES];
+ 
++// little endian reads from the inflated body
++typedef struct {
++    const uint8_t *at;
++    const uint8_t *end;
++} x16_body;
++
++static unsigned x16_u8(x16_body *b) {
++    return b->at < b->end ? *b->at++ : 0;
++}
++
++static unsigned x16_u16(x16_body *b) {
++    unsigned lo = x16_u8(b);
++    return lo | (x16_u8(b) << 8);
++}
++
+ static bool x16_read(x16_file *x16, sd_reader *r) {
+     char magic[8];
+-    if(sd_read_buf(r, magic, 8) != 1 || memcmp(magic, "OMFX16\0\1", 8) != 0) {
++    if(sd_read_buf(r, magic, 8) != 1 || memcmp(magic, "OMFX16\0\2", 8) != 0) {
++        return false;
++    }
++    uLong packed_size = sd_read_udword(r);
++    if(!sd_reader_ok(r) || packed_size > (uLong)sd_reader_filesize(r)) {
+         return false;
+     }
+-    x16->color_count = sd_read_uword(r);
+-    if(x16->color_count > HAR_EXTENDED_COLORS) {
++    Bytef *packed = omf_calloc(packed_size, 1);
++    sd_read_buf(r, (char *)packed, packed_size);
++    // inflate, growing the buffer until the body fits
++    uLongf size = packed_size * 4;
++    Bytef *body = NULL;
++    int ret;
++    do {
++        omf_free(body);
++        size *= 2;
++        body = omf_calloc(size, 1);
++        uLongf got = size;
++        ret = uncompress(body, &got, packed, packed_size);
++        if(ret == Z_OK) {
++            size = got;
++        }
++    } while(ret == Z_BUF_ERROR);
++    omf_free(packed);
++    if(ret != Z_OK) {
++        omf_free(body);
+         return false;
+     }
+-    for(int i = 0; i < x16->color_count; i++) {
+-        x16->colors[i].r = sd_read_ubyte(r);
+-        x16->colors[i].g = sd_read_ubyte(r);
+-        x16->colors[i].b = sd_read_ubyte(r);
++
++    x16_body b = {body, body + size};
++    x16->color_count = x16_u16(&b);
++    bool ok = x16->color_count <= HAR_EXTENDED_COLORS;
++    for(int i = 0; ok && i < x16->color_count; i++) {
++        x16->colors[i].r = x16_u8(&b);
++        x16->colors[i].g = x16_u8(&b);
++        x16->colors[i].b = x16_u8(&b);
+     }
+-    x16->frame_count = sd_read_uword(r);
++    x16->frame_count = ok ? x16_u16(&b) : 0;
+     x16->frames = omf_calloc(x16->frame_count, sizeof(x16_frame));
+     for(int f = 0; f < x16->frame_count; f++) {
+         x16_frame *frame = &x16->frames[f];
+-        frame->move = sd_read_ubyte(r);
+-        frame->sprite = sd_read_ubyte(r);
+-        frame->w = sd_read_uword(r);
+-        frame->h = sd_read_uword(r);
+-        int size = frame->w * frame->h;
+-        frame->pixels = omf_calloc(size, sizeof(vga_pixel));
+-        for(int at = 0; at < size && sd_reader_ok(r);) {
+-            at += sd_read_uword(r);
+-            int n = sd_read_uword(r);
+-            for(int k = 0; k < n && at < size; k++) {
+-                vga_pixel v = sd_read_uword(r);
++        frame->move = x16_u8(&b);
++        frame->sprite = x16_u8(&b);
++        frame->scale = x16_u8(&b);
++        frame->w = x16_u16(&b);
++        frame->h = x16_u16(&b);
++        int count = frame->w * frame->h;
++        frame->pixels = omf_calloc(count, sizeof(vga_pixel));
++        for(int at = 0; at < count && b.at < b.end;) {
++            at += x16_u16(&b);
++            int n = x16_u16(&b);
++            for(int k = 0; k < n && at < count; k++) {
++                vga_pixel v = x16_u16(&b);
+                 frame->pixels[at++] = v < VGA_PALETTE_SIZE ? v : 0;
+             }
+         }
+     }
+-    return sd_reader_ok(r);
++    ok = ok && b.at == b.end;
++    omf_free(body);
++    return ok;
+ }
+ 
+ static const x16_file *x16_get(unsigned int har_id) {
+@@ -107,24 +158,72 @@
+     return x16 ? x16->colors : NULL;
+ }
+ 
+-void har_extended_load_sprites(af *af_data, unsigned int har_id) {
+-    const x16_file *x16 = x16_get(har_id);
+-    if(!x16) {
++int har_sprite_scale(void) {
++#ifdef __EMSCRIPTEN__
++    // the page picks it: 4 on large screens, less on phones and tablets
++    return EM_ASM_INT({ return Module.omfSpriteScale || 4; });
++#else
++    return 1;
++#endif
++}
++
++static void upscale_sprite(sprite *sp, int scale) {
++    surface *sur = sp->data;
++    if(sur == NULL || sur->w <= 0 || sur->render_w <= 0) {
++        return; // the game has empty sprites
++    }
++    int now = max2(sur->w / sur->render_w, 1);
++    if(now < scale) {
++        surface_upscale_pixelart(sur, scale / now);
++    }
++}
++
++// The .X16 frame takes the sprite's place; a finer one than the sprite keeps the sprite's size.
++static void load_x16_frame(sprite *sp, const x16_frame *frame, unsigned int har_id) {
++    surface *sur = sp->data;
++    if(frame->scale < 1 || sur->render_w * frame->scale != frame->w || sur->render_h * frame->scale != frame->h) {
++        log_error("%s: sprite %d/%d is %dx%d, its extended pixels %dx%d at %dx", har_get_name(har_id), frame->move,
++                  frame->sprite, sur->render_w, sur->render_h, frame->w, frame->h, frame->scale);
+         return;
+     }
+-    for(int f = 0; f < x16->frame_count; f++) {
++    if(sur->w != frame->w || sur->h != frame->h) {
++        omf_free(sur->data);
++        sur->data = omf_calloc(frame->w * frame->h, sizeof(vga_pixel));
++        sur->w = frame->w;
++        sur->h = frame->h;
++    }
++    memcpy(sur->data, frame->pixels, frame->w * frame->h * sizeof(vga_pixel));
++}
++
++void har_prepare_sprites(af *af_data, unsigned int har_id) {
++    const x16_file *x16 = x16_get(har_id);
++    for(int f = 0; x16 && f < x16->frame_count; f++) {
+         const x16_frame *frame = &x16->frames[f];
+         af_move *move = af_get_move(af_data, frame->move);
+         sprite *sp = move ? animation_get_sprite(&move->ani, frame->sprite) : NULL;
+-        if(!sp || !sp->owned) { // references share another sprite's pixels
+-            continue;
++        if(sp && sp->owned) { // references share another sprite's pixels
++            load_x16_frame(sp, frame, har_id);
+         }
+-        if(sp->data->w != frame->w || sp->data->h != frame->h) {
+-            log_error("%s: sprite %d/%d is %dx%d, its extended pixels %dx%d", har_get_name(har_id), frame->move,
+-                      frame->sprite, sp->data->w, sp->data->h, frame->w, frame->h);
+-            continue;
++    }
++    int scale = har_sprite_scale();
++    if(scale <= 1) {
++        return;
++    }
++    iterator it;
++    af_move *move;
++    array_iter_begin(&af_data->moves, &it);
++    foreach(it, move) {
++        har_upscale_animation(&move->ani);
++    }
++}
++
++void har_upscale_animation(animation *ani) {
++    int scale = har_sprite_scale();
++    for(int i = 0; scale > 1 && i < animation_get_sprite_count(ani); i++) {
++        sprite *sp = animation_get_sprite(ani, i);
++        if(sp && sp->owned) {
++            upscale_sprite(sp, scale);
+         }
+-        memcpy(sp->data->data, frame->pixels, frame->w * frame->h * sizeof(vga_pixel));
+     }
+ }
+ 
+--- a/src/game/utils/har_extended.h
++++ b/src/game/utils/har_extended.h
+@@ -2,6 +2,7 @@
+ #define HAR_EXTENDED_H
+ 
+ #include "resources/af.h"
++#include "resources/animation.h"
+ #include "video/surface.h"
+ #include "video/vga_palette.h"
+ 
+@@ -16,8 +17,16 @@
+ // The HAR's extended colors, from its <AF name>.X16 file; NULL and 0 when it has none.
+ const vga_color *har_extended_colors(unsigned int har_id, int *count);
+ 
+-// Replaces the HAR's sprite pixels with the 16-bit ones in its .X16 file, if it has one.
+-void har_extended_load_sprites(af *af_data, unsigned int har_id);
++// Makes the HAR's sprites ready to draw: the 16-bit pixels of its .X16 file, if it has one
++// (finer than the game's when its art is), then every sprite enlarged to har_sprite_scale()
++// with Scale2x, which keeps their size in the game and smooths their edges on large screens.
++void har_prepare_sprites(af *af_data, unsigned int har_id);
++
++// Enlarges an animation's sprites (a HAR's portraits in the menus) like har_prepare_sprites().
++void har_upscale_animation(animation *ani);
++
++// How much finer than the game's 320x200 the HAR sprites are drawn: 1, 2 or 4.
++int har_sprite_scale(void);
+ 
+ // An 8-bit sprite drawn in a HAR's first 159 extended colors (bytes 1..159), such as its
+ // portrait in VS.BK: moves those bytes to the extended palette.
+--- a/src/resources/sprite.c
++++ b/src/resources/sprite.c
+@@ -55,7 +55,8 @@
+ 
+ vec2i sprite_get_size(sprite *sp) {
+     if(sp->data != NULL) {
+-        return vec2i_create(sp->data->w, sp->data->h);
++        // the size it draws and collides at; its pixels may be finer (HD sprites)
++        return vec2i_create(sp->data->render_w, sp->data->render_h);
+     }
+     return vec2i_create(0, 0);
+ }
+--- a/src/video/renderers/opengl3/gl3_renderer.c
++++ b/src/video/renderers/opengl3/gl3_renderer.c
+@@ -162,8 +162,12 @@
+     const int fb_h = NATIVE_H * ctx->fb_scale;
+ 
+     // Create the rest of the graphics objects
+-    ctx->atlas = atlas_create(TEX_UNIT_ATLAS, 2048, 2048);
+-    ctx->objects = object_array_create(2048.0f, 2048.0f);
++    // HD sprites take 4 or 16 times the room: as large an atlas as the GPU allows, up to 4096
++    GLint max_texture_size = 2048;
++    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
++    const int atlas_size = clamp(max_texture_size, 2048, 4096);
++    ctx->atlas = atlas_create(TEX_UNIT_ATLAS, atlas_size, atlas_size);
++    ctx->objects = object_array_create(atlas_size, atlas_size);
+     ctx->palette = gl_palette_create(TEX_UNIT_PALETTE);
+     ctx->paletted_target = render_target_create(TEX_UNIT_FBO, fb_w, fb_h, GL_RGBA16, GL_RGBA, GL_NEAREST);
+     ctx->rgba_target = render_target_create(TEX_UNIT_FBO2, fb_w, fb_h, GL_RGBA8, GL_RGBA, GL_NEAREST);
+--- a/src/video/renderers/opengl3/helpers/texture_atlas.c
++++ b/src/video/renderers/opengl3/helpers/texture_atlas.c
+@@ -77,9 +77,15 @@
+         return true;
+     }
+ 
+-    // If item is NOT in the texture atlas, add it now.
++    // If item is NOT in the texture atlas, add it now. When the atlas is full (HD sprites fill
++    // it faster), start it over: what this frame still needs is uploaded again as it is drawn.
+     uint16_t nx, ny;
+-    if(atlas_insert(atlas, surface->data, surface->w, surface->h, &nx, &ny)) {
++    bool inserted = atlas_insert(atlas, surface->data, surface->w, surface->h, &nx, &ny);
++    if(!inserted) {
++        atlas_reset(atlas);
++        inserted = atlas_insert(atlas, surface->data, surface->w, surface->h, &nx, &ny);
++    }
++    if(inserted) {
+         *x = nx;
+         *y = ny;
+         *w = surface->w;
+--- a/src/video/surface.c
++++ b/src/video/surface.c
+@@ -161,6 +161,38 @@
+     sur->guid = guid++;
+ }
+ 
++// One Scale2x pass: each pixel becomes 2x2, corners taking a neighbour's value where two
++// neighbours agree, so diagonal edges step by half a pixel instead of a whole one.
++static vga_pixel *scale2x(const vga_pixel *src, int w, int h) {
++    vga_pixel *dst = omf_calloc(w * h * 4, sizeof(vga_pixel));
++    for(int y = 0; y < h; y++) {
++        for(int x = 0; x < w; x++) {
++            const vga_pixel p = src[y * w + x];
++            const vga_pixel a = y > 0 ? src[(y - 1) * w + x] : p;     // up
++            const vga_pixel b = x < w - 1 ? src[y * w + x + 1] : p; // right
++            const vga_pixel c = x > 0 ? src[y * w + x - 1] : p;     // left
++            const vga_pixel d = y < h - 1 ? src[(y + 1) * w + x] : p; // down
++            vga_pixel *out = &dst[(y * 2) * (w * 2) + x * 2];
++            out[0] = (c == a && c != d && a != b) ? a : p;
++            out[1] = (a == b && a != c && b != d) ? b : p;
++            out[w * 2] = (d == c && d != b && c != a) ? c : p;
++            out[w * 2 + 1] = (b == d && b != a && d != c) ? d : p;
++        }
++    }
++    return dst;
++}
++
++void surface_upscale_pixelart(surface *sur, int factor) {
++    for(int f = 1; f < factor; f *= 2) {
++        vga_pixel *bigger = scale2x(sur->data, sur->w, sur->h);
++        omf_free(sur->data);
++        sur->data = bigger;
++        sur->w *= 2;
++        sur->h *= 2;
++    }
++    sur->guid = guid++;
++}
++
+ void surface_compress_index_blocks(surface *sur, int range_start, int range_end, int block_size, int amount) {
+     for(int i = 0; i < sur->w * sur->h; i++) {
+         const vga_index idx = sur->data[i];
+--- a/src/video/surface.h
++++ b/src/video/surface.h
+@@ -81,6 +81,16 @@
+ void surface_convert_har_to_grayscale(surface *sur, uint8_t brightness);
+ 
+ /**
++ * Enlarges the surface's pixels by 2 or 4 with Scale2x (EPX), keeping its render size: it
++ * still draws and collides as before, with smoother edges when the framebuffer is larger.
++ * Only existing pixel values are used, so palettes, player colors and remaps still apply.
++ *
++ * @param sur Surface to enlarge
++ * @param factor 2 or 4
++ */
++void surface_upscale_pixelart(surface *sur, int factor);
++
++/**
+  * Convert surface to a grayscale surface.
+  * Uses the full palette for lookup, and maps each pixel to the closest
+  * gray in the range [range_start, range_end]. Indices below ignore_below are passed through.

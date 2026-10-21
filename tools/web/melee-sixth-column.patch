@@ -1,0 +1,420 @@
+diff --git a/src/game/scenes/melee.c b/src/game/scenes/melee.c
+index fa4e7540..2b9ec962 100644
+--- a/src/game/scenes/melee.c
++++ b/src/game/scenes/melee.c
+@@ -11,8 +11,12 @@
+ #include "game/protos/object.h"
+ #include "game/protos/scene.h"
+ #include "game/scenes/melee.h"
++#include "game/utils/har_extended.h"
++#include "resources/af.h"
++#include "resources/af_loader.h"
+ #include "resources/animation.h"
+ #include "resources/bk.h"
++#include "resources/ids.h"
+ #include "resources/languages.h"
+ #include "resources/pilots.h"
+ #include "resources/sprite.h"
+@@ -46,14 +50,24 @@ typedef struct {
+     bool done;
+ } cursor_data;
+ 
+-#define CURSOR_INDEX(local, player) (5 * local->cursor[player].row + local->cursor[player].column)
++// The robot page has a sixth column: Nova on top, Ocelot below.
++#define EXTRA_COLUMN 5
++#define EXTRA_HARS (NUMBER_OF_HAR_TYPES - HAR_NOVA)
++#define CURSOR_INDEX(local, player)                                                                                    \
++    (local->cursor[player].column == EXTRA_COLUMN ? HAR_NOVA + local->cursor[player].row                               \
++                                                  : 5 * local->cursor[player].row + local->cursor[player].column)
+ #define CURSOR_A_DONE(local) (local->cursor[0].done)
+ #define CURSOR_B_DONE(local) (local->cursor[1].done)
+-#define CURSORS_MATCH(local)                                                                                           \
+-    (local->cursor[0].column == local->cursor[1].column && local->cursor[0].row == local->cursor[1].row)
++#define CURSORS_MATCH(local) (CURSOR_INDEX(local, 0) == CURSOR_INDEX(local, 1))
+ #define CURSORS_DONE(local) (local->cursor[0].done && local->cursor[1].done)
+ #define CURSOR_NOVA_SELECT(local, player) (local->cursor[player].row == 1 && local->cursor[player].column == 2)
+ 
++// Robot page grid: the background's five 51px cells are narrowed to 46px so six fit.
++#define HAR_CELL_W 46
++#define HAR_CELL_X(column) (7 + 52 * (column))
++#define HAR_CELL_Y(row) (115 + 42 * (row))
++#define HAR_PANEL_Y 104
++
+ typedef enum
+ {
+     PILOT_SELECT = 0,
+@@ -76,10 +90,11 @@ typedef struct {
+     object big_portrait_2;
+     object player2_placeholder;
+     object unselected_pilot_portraits;
+-    object unselected_har_portraits;
++    surface har_panel; // six column robot grid, unselected robots in grayscale
+ 
+     portrait pilot_portraits[10];
+-    portrait har_portraits[10];
++    portrait har_portraits[NUMBER_OF_HAR_TYPES];
++    af extra_af[EXTRA_HARS]; // Nova's and Ocelot's portraits and idle animations; MELEE.BK only has ten
+ 
+     object har[2];
+ 
+@@ -91,6 +106,7 @@ typedef struct {
+     surface bg_player_stats;
+     surface bg_player_bio;
+     surface select_hilight;
++    surface har_hilight;
+ 
+     unsigned int ticks;
+     unsigned int tickbase[2];
+@@ -121,6 +137,8 @@ void melee_free(scene *scene) {
+     surface_free(&local->bg_player_stats);
+     surface_free(&local->bg_player_bio);
+     surface_free(&local->select_hilight);
++    surface_free(&local->har_hilight);
++    surface_free(&local->har_panel);
+     for(int i = 0; i < 2; i++) {
+         for(int j = 0; j < STAT_COUNT; j++) {
+             component_free(local->bar_stat[i][j]);
+@@ -130,9 +148,14 @@ void melee_free(scene *scene) {
+     object_free(&local->har[0]);
+     object_free(&local->har[1]);
+ 
+-    for(int i = 0; i < 10; i++) {
++    for(int i = 0; i < EXTRA_HARS; i++) {
++        af_free(&local->extra_af[i]);
++    }
++    for(int i = 0; i < NUMBER_OF_HAR_TYPES; i++) {
+         surface_free(&local->har_portraits[i].enabled);
+         surface_free(&local->har_portraits[i].disabled);
++    }
++    for(int i = 0; i < 10; i++) {
+         surface_free(&local->pilot_portraits[i].enabled);
+         surface_free(&local->pilot_portraits[i].disabled);
+     }
+@@ -150,7 +173,6 @@ void melee_free(scene *scene) {
+ 
+     object_free(&local->player2_placeholder);
+     object_free(&local->unselected_pilot_portraits);
+-    object_free(&local->unselected_har_portraits);
+     object_free(&local->big_portrait_1);
+     if(player2->selectable) {
+         object_free(&local->big_portrait_2);
+@@ -295,10 +317,16 @@ void update_har(scene *scene, int player) {
+         animation *ani;
+         object *har = &local->har[player];
+ 
+-        ani = &bk_get_info(scene->bk_data, 18 + CURSOR_INDEX(local, player))->ani;
++        if(CURSOR_INDEX(local, player) >= HAR_NOVA) {
++            ani = &af_get_move(&local->extra_af[CURSOR_INDEX(local, player) - HAR_NOVA], ANIM_IDLE)->ani;
++        } else {
++            ani = &bk_get_info(scene->bk_data, 18 + CURSOR_INDEX(local, player))->ani;
++        }
+         object_set_animation(har, ani);
+         object_select_sprite(har, 0);
+         object_set_repeat(har, 1);
++        har_load_player_colors(&game_state_get_player(scene->gs, player)->pilot->palette, CURSOR_INDEX(local, player),
++                               player);
+         if(player2->selectable) {
+             str tmp;
+             str_from_format(&tmp, "%s VS. %s", har_get_name(CURSOR_INDEX(local, 0)),
+@@ -375,6 +403,7 @@ void handle_action(scene *scene, int player, int action) {
+ 
+     int old_row = *row;
+     int old_column = *column;
++    int last_column = local->page == HAR_SELECT ? EXTRA_COLUMN : 4;
+ 
+     switch(action) {
+         case ACT_STOP:
+@@ -383,7 +412,7 @@ void handle_action(scene *scene, int player, int action) {
+         case ACT_LEFT:
+             (*column)--;
+             if(*column < 0) {
+-                *column = 4;
++                *column = last_column;
+                 if(local->page == PILOT_SELECT) {
+                     local->cheat_pilot_stats[player] |= *row + 1;
+                 }
+@@ -392,7 +421,7 @@ void handle_action(scene *scene, int player, int action) {
+             break;
+         case ACT_RIGHT:
+             (*column)++;
+-            if(*column > 4) {
++            if(*column > last_column) {
+                 *column = 0;
+                 if(local->page == PILOT_SELECT) {
+                     local->cheat_pilot_stats[player] |= *row + 1;
+@@ -570,26 +599,29 @@ void handle_action(scene *scene, int player, int action) {
+     refresh_pilot_stats(local);
+ #endif
+ 
+-    local->cheat_selected[player][5 * (*row) + *column] = 1;
++    if(*column != EXTRA_COLUMN) {
++        local->cheat_selected[player][5 * (*row) + *column] = 1;
++    }
+ }
+ 
+ // Move cursors to select Pilot or HARs specified by A and B.
+ static void restore_cursors_to(melee_local *local, unsigned a, unsigned b) {
+-    // note: a/b can be HAR_NOVA (10) when returning from VS,
+-    // which the original game handles surprisingly elegantly.
+-    // If we try to naively do that, our pointers all explode.
+-    if(a == HAR_NOVA) {
+-        a = HAR_FLAIL;
+-    }
+-    if(b == HAR_NOVA) {
+-        b = HAR_FLAIL;
++    unsigned ids[2] = {a, b};
++    for(int i = 0; i < 2; i++) {
++        // note: a/b can be 10 or more (HAR_NOVA, HAR_OCELOT, or PILOT_KREISSACK) when returning from VS.
++        // The robot page has cells for Nova and Ocelot; the pilot page has none for Kreissack,
++        // which the original game handles surprisingly elegantly.
++        // If we try to naively do that, our pointers all explode.
++        if(ids[i] >= HAR_NOVA && local->page == HAR_SELECT) {
++            local->cursor[i].column = EXTRA_COLUMN;
++            local->cursor[i].row = ids[i] - HAR_NOVA;
++        } else {
++            unsigned id = ids[i] == HAR_NOVA ? HAR_FLAIL : ids[i];
++            local->cursor[i].column = id % 5;
++            local->cursor[i].row = id / 5;
++        }
++        local->cursor[i].done = 0;
+     }
+-    local->cursor[0].column = a % 5;
+-    local->cursor[0].row = a / 5;
+-    local->cursor[0].done = 0;
+-    local->cursor[1].column = b % 5;
+-    local->cursor[1].row = b / 5;
+-    local->cursor[1].done = 0;
+ }
+ 
+ void melee_input_tick(scene *scene) {
+@@ -630,8 +662,8 @@ void melee_input_tick(scene *scene) {
+             audio_play_sound_simple(20, 0);
+             if(local->page == HAR_SELECT) {
+                 // restore the player selection
+-                restore_cursors_to(local, local->pilot_id_a, local->pilot_id_b);
+                 local->page = PILOT_SELECT;
++                restore_cursors_to(local, local->pilot_id_a, local->pilot_id_b);
+                 load_pilot_portraits_palette(scene);
+             } else if(scene->gs->net_mode == NET_MODE_LOBBY) {
+                 // came from the network lobby (challenge arena); go back there
+@@ -645,9 +677,13 @@ void melee_input_tick(scene *scene) {
+ }
+ 
+ static void draw_highlight(const melee_local *local, const cursor_data *cursor, int offset) {
+-    int x = 11 + (62 * cursor->column);
+-    int y = 115 + (42 * cursor->row);
+-    video_draw_offset(&local->select_hilight, x, y, offset, 255);
++    if(local->page == PILOT_SELECT) {
++        int x = 11 + (62 * cursor->column);
++        int y = 115 + (42 * cursor->row);
++        video_draw_offset(&local->select_hilight, x, y, offset, 255);
++    } else {
++        video_draw_offset(&local->har_hilight, HAR_CELL_X(cursor->column), HAR_CELL_Y(cursor->row), offset, 255);
++    }
+ }
+ 
+ static void render_highlights(const melee_local *local, bool player2_is_selectable) {
+@@ -661,8 +697,8 @@ static void render_highlights(const melee_local *local, bool player2_is_selectab
+     }
+ }
+ 
+-static void render_enabled_portrait(const portrait *portraits, cursor_data *cursor, int player) {
+-    const portrait *p = &portraits[5 * cursor->row + cursor->column];
++static void render_enabled_portrait(const portrait *portraits, int index, int player) {
++    const portrait *p = &portraits[index];
+     if(player < 0) {
+         video_draw(&p->enabled, p->x, p->y);
+     } else {
+@@ -727,10 +763,10 @@ static void render_pilot_select(melee_local *local, bool player2_is_selectable)
+ 
+     object_render(&local->unselected_pilot_portraits);
+     render_highlights(local, player2_is_selectable);
+-    render_enabled_portrait(local->pilot_portraits, &local->cursor[0], -1);
++    render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 0), -1);
+     object_render(&local->big_portrait_1);
+     if(player2_is_selectable) {
+-        render_enabled_portrait(local->pilot_portraits, &local->cursor[1], -1);
++        render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 1), -1);
+         object_render(&local->big_portrait_2);
+     }
+ }
+@@ -740,14 +776,14 @@ static void render_har_select(melee_local *local, bool player2_is_selectable) {
+ 
+     // render the stupid unselected HAR portraits before anything
+     // so we can render anything else on top of them
+-    object_render(&local->unselected_har_portraits);
++    video_draw(&local->har_panel, 0, HAR_PANEL_Y);
+     render_highlights(local, player2_is_selectable);
+ 
+     // currently selected player
+     object_render(&local->big_portrait_1);
+ 
+     // currently selected HAR
+-    render_enabled_portrait(local->har_portraits, &local->cursor[0], 0);
++    render_enabled_portrait(local->har_portraits, CURSOR_INDEX(local, 0), 0);
+     object_render(&local->har[0]);
+ 
+     // player 1 name
+@@ -761,7 +797,7 @@ static void render_har_select(melee_local *local, bool player2_is_selectable) {
+         object_render(&local->big_portrait_2);
+ 
+         // currently selected HAR
+-        render_enabled_portrait(local->har_portraits, &local->cursor[1], 1);
++        render_enabled_portrait(local->har_portraits, CURSOR_INDEX(local, 1), 1);
+         object_render(&local->har[1]);
+ 
+         // render HAR name (Har1 VS. Har2)
+@@ -819,6 +855,66 @@ static void load_pilot_portraits(scene *scene, melee_local *local) {
+     object_select_sprite(&local->unselected_pilot_portraits, 0);
+ }
+ 
++// Background x for robot panel x: keeps each cell's and gap's edges, drops their middles.
++static int har_panel_source_x(int x) {
++    if(x < HAR_CELL_X(0)) {
++        return x < 4 ? x : x + 4; // left margin, 11px -> 7px
++    }
++    if(x >= HAR_CELL_X(EXTRA_COLUMN) + HAR_CELL_W) {
++        int m = x - (HAR_CELL_X(EXTRA_COLUMN) + HAR_CELL_W);
++        return 310 + (m < 4 ? m : m + 3); // right margin, 10px -> 7px
++    }
++    int column = (x - HAR_CELL_X(0)) / 52;
++    int offset = (x - HAR_CELL_X(0)) % 52;
++    if(offset < HAR_CELL_W) {
++        int src = column < 5 ? column : 4; // cell, 51px -> 46px
++        return 11 + 62 * src + (offset < HAR_CELL_W / 2 ? offset : offset + 5);
++    }
++    int gap = offset - HAR_CELL_W;
++    int src = column < 4 ? column : 3; // gap, 11px -> 6px
++    return 62 + 62 * src + (gap < 3 ? gap : gap + 5);
++}
++
++static void blit_opaque(surface *dst, const surface *src, int x, int y) {
++    for(int sy = 0; sy < src->h; sy++) {
++        for(int sx = 0; sx < src->w; sx++) {
++            vga_pixel px = src->data[sy * src->w + sx];
++            if(px != src->transparent) {
++                dst->data[(y + sy) * dst->w + x + sx] = px;
++            }
++        }
++    }
++}
++
++// Portrait for a HAR that MELEE.BK has no art for: its idle frame, shrunk into the cell.
++static void load_af_portrait(melee_local *local, int har_id, vga_pixel cell_color) {
++    portrait *target = &local->har_portraits[har_id];
++    target->x = HAR_CELL_X(EXTRA_COLUMN);
++    target->y = HAR_CELL_Y(har_id - HAR_NOVA);
++    surface_create(&target->enabled, HAR_CELL_W, 36);
++    for(int i = 0; i < HAR_CELL_W * 36; i++) {
++        target->enabled.data[i] = cell_color;
++    }
++    surface_set_transparency(&target->enabled, cell_color);
++
++    const surface *frame =
++        animation_get_sprite(&af_get_move(&local->extra_af[har_id - HAR_NOVA], ANIM_IDLE)->ani, 0)->data;
++    // fit the height; a robot too wide for the cell (Ocelot's tail) keeps its front, facing right
++    float scale = 36.0f / frame->h;
++    int w = frame->w * scale;
++    int h = frame->h * scale;
++    int ox = w <= HAR_CELL_W ? (HAR_CELL_W - w) / 2 : HAR_CELL_W - w;
++    int oy = (36 - h) / 2;
++    for(int y = 0; y < h; y++) {
++        for(int x = 0; x < w; x++) {
++            vga_pixel px = frame->data[(int)(y / scale) * frame->w + (int)(x / scale)];
++            if(ox + x >= 0 && px != frame->transparent) {
++                target->enabled.data[(oy + y) * HAR_CELL_W + ox + x] = px;
++            }
++        }
++    }
++}
++
+ static void load_har_portraits(scene *scene, melee_local *local) {
+     portrait *target;
+     int row, col;
+@@ -830,18 +926,45 @@ static void load_har_portraits(scene *scene, melee_local *local) {
+         col = i % 5;
+         target = &local->har_portraits[i];
+ 
+-        // Copy the HAR image in full color (shown when selected)
+-        target->x = sheet->pos.x + 62 * col;
+-        target->y = sheet->pos.y + 42 * row;
+-        surface_create_from_surface(&target->enabled, 51, 36, 62 * col, 42 * row, sheet->data);
++        // Copy the HAR image in full color (shown when selected), narrowed around its middle
++        target->x = HAR_CELL_X(col);
++        target->y = HAR_CELL_Y(row);
++        surface_create_from_surface(&target->enabled, HAR_CELL_W, 36, 62 * col + 2, 42 * row, sheet->data);
+         surface_set_transparency(&target->enabled, 0xD0);
+     }
++    for(int i = HAR_NOVA; i < NUMBER_OF_HAR_TYPES; i++) {
++        load_af_portrait(local, i, 0xD0);
++    }
+ 
+-    // convert BK's sheet sprite to grayscale and use it for the unselected_har_portraits
+-    surface_convert_har_to_grayscale(sheet->data, 8);
+-    object_create_static(&local->unselected_har_portraits, scene->gs);
+-    object_set_animation(&local->unselected_har_portraits, har_portraits);
+-    object_select_sprite(&local->unselected_har_portraits, 0);
++    // Six column panel: the background's five column grid, re-cut
++    const surface *bg = &scene->bk_data->background;
++    surface_create(&local->har_panel, 320, 200 - HAR_PANEL_Y);
++    surface_set_transparency(&local->har_panel, -1);
++    for(int y = 0; y < local->har_panel.h; y++) {
++        for(int x = 0; x < 320; x++) {
++            local->har_panel.data[y * 320 + x] = bg->data[(HAR_PANEL_Y + y) * bg->w + har_panel_source_x(x)];
++        }
++    }
++
++    // unselected robots are drawn in grayscale
++    for(int i = 0; i < NUMBER_OF_HAR_TYPES; i++) {
++        surface gray;
++        target = &local->har_portraits[i];
++        surface_create_from(&gray, &target->enabled);
++        surface_convert_har_to_grayscale(&gray, 8);
++        // extended colors (Ocelot's own) are grayed by their brightness, onto the same 0xD0..0xD8 grays
++        int extended_count;
++        const vga_color *extended = har_extended_colors(i, &extended_count);
++        for(int k = 0; extended && k < gray.w * gray.h; k++) {
++            int idx = gray.data[k] - HAR_EXTENDED_BASE - 1;
++            if(idx >= 0 && idx < extended_count && gray.data[k] != gray.transparent) {
++                vga_color c = extended[idx];
++                gray.data[k] = 0xD0 + 8 * (c.r * 30 + c.g * 59 + c.b * 11) / (255 * 100);
++            }
++        }
++        blit_opaque(&local->har_panel, &gray, target->x, target->y - HAR_PANEL_Y);
++        surface_free(&gray);
++    }
+ }
+ 
+ static void load_hars(scene *scene, melee_local *local, bool player2_is_selectable) {
+@@ -873,7 +996,7 @@ bool melee_event_cb(scene *scene, SDL_Event *e) {
+             uint8_t color = sd_pilot_get_player_color(player->pilot, pal_id);
+             color = (color + 1) % 16;
+             sd_pilot_set_player_color(player->pilot, pal_id, color);
+-            palette_load_player_colors(&player->pilot->palette, player_id);
++            har_load_player_colors(&player->pilot->palette, CURSOR_INDEX(local, player_id), player_id);
+         }
+         return true;
+     }
+@@ -944,6 +1067,8 @@ int melee_create(scene *scene) {
+     surface_create_from_data(&local->select_hilight, 51, 36, black);
+     surface_set_transparency(&local->select_hilight, -1);
+     omf_free(black);
++    surface_create(&local->har_hilight, HAR_CELL_W, 36);
++    surface_set_transparency(&local->har_hilight, -1);
+ 
+     // set up the magic controller hooks
+     if(player1_ctrl && player2_ctrl) {
+@@ -963,6 +1088,13 @@ int melee_create(scene *scene) {
+     }
+ 
+     // Load HAR and Pilot face portraits and har sprites for the selection grid
++    for(int i = 0; i < EXTRA_HARS; i++) {
++        if(load_af_file(&local->extra_af[i], har_to_resource(HAR_NOVA + i))) {
++            log_error("Unable to load %s's AF file", har_get_name(HAR_NOVA + i));
++            return 1;
++        }
++        har_extended_load_sprites(&local->extra_af[i], HAR_NOVA + i);
++    }
+     load_pilot_portraits(scene, local);
+     load_har_portraits(scene, local);
+     load_hars(scene, local, player2->selectable);

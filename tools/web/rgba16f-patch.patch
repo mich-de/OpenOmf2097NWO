@@ -1,0 +1,25 @@
+diff --git a/src/video/renderers/opengl3/helpers/render_target.c b/src/video/renderers/opengl3/helpers/render_target.c
+index ec75d52e..6c5ec2be 100644
+--- a/src/video/renderers/opengl3/helpers/render_target.c
++++ b/src/video/renderers/opengl3/helpers/render_target.c
+@@ -15,7 +15,19 @@ typedef struct render_target {
+ render_target *render_target_create(GLuint tex_unit, int w, int h, GLint internal_format, GLenum format,
+                                     GLenum filtering) {
+     render_target *target = omf_calloc(1, sizeof(render_target));
+-    target->texture_id = texture_create(tex_unit, w, h, internal_format, format, GL_UNSIGNED_BYTE, filtering);
++    GLenum type = GL_UNSIGNED_BYTE;
++#ifdef __EMSCRIPTEN__
++    // WebGL2 (OpenGL ES 3.0 table 3.13) has no color-renderable GL_RGBA16:
++    // attaching it leaves the framebuffer incomplete and every draw into it
++    // silently dropped (black screen). RGBA16F is renderable, and its
++    // 10-bit mantissa still round-trips the 10-bit palette indices, because
++    // the decode side quantizes with int(v * 1023.0 + 0.5).
++    if(internal_format == GL_RGBA16) {
++        internal_format = GL_RGBA16F;
++        type = GL_FLOAT;
++    }
++#endif
++    target->texture_id = texture_create(tex_unit, w, h, internal_format, format, type, filtering);
+     target->fbo_id = fbo_create(target->texture_id);
+     target->tex_unit = tex_unit;
+     return target;

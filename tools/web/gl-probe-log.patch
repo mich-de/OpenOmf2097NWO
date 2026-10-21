@@ -1,0 +1,15 @@
+diff --git a/src/video/renderers/opengl3/sdl_window.c b/src/video/renderers/opengl3/sdl_window.c
+--- a/src/video/renderers/opengl3/sdl_window.c
++++ b/src/video/renderers/opengl3/sdl_window.c
+@@ -56,9 +56,11 @@ bool has_gl_available(int version_major, int version_minor) {
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, version_minor);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+ 
+     if((w = SDL_CreateWindow("", 0, 0, 320, 200, SDL_WINDOW_HIDDEN | SDL_WINDOW_OPENGL)) == NULL) {
++        log_error("GL probe: hidden window creation failed: %s", SDL_GetError());
+         goto exit_0;
+     }
+     if((c = SDL_GL_CreateContext(w)) == NULL) {
++        log_error("GL probe: context creation failed: %s", SDL_GetError());
+         goto exit_1;
+     }

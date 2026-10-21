@@ -1,0 +1,24 @@
+diff --git a/src/video/renderers/opengl3/gl3_renderer.c b/src/video/renderers/opengl3/gl3_renderer.c
+index 16fb7e38..8214178e 100644
+--- a/src/video/renderers/opengl3/gl3_renderer.c
++++ b/src/video/renderers/opengl3/gl3_renderer.c
+@@ -536,7 +536,19 @@ static void render_area_finish(void *userdata, surface *dst) {
+     const int scale = ctx->fb_scale;
+     const SDL_Rect r = (SDL_Rect){x0 * scale, y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale};
+     uint16_t *buffer = omf_calloc(r.w * r.h, sizeof(uint16_t));
++#ifdef __EMSCRIPTEN__
++    // Web build: the FBO is RGBA16F (see render_target.c), and WebGL2 reads a
++    // float color buffer only as RGBA/FLOAT; GL_RED/GL_UNSIGNED_SHORT fails
++    // and leaves the buffer zeroed, so the newsroom photo came out empty.
++    float *rgba = omf_calloc(r.w * r.h * 4, sizeof(float));
++    glReadPixels(r.x, r.y, r.w, r.h, GL_RGBA, GL_FLOAT, rgba);
++    for(int i = 0; i < r.w * r.h; i++) {
++        buffer[i] = (uint16_t)(clampf(rgba[i * 4], 0.0f, 1.0f) * 65535.0f + 0.5f);
++    }
++    omf_free(rgba);
++#else
+     glReadPixels(r.x, r.y, r.w, r.h, GL_RED, GL_UNSIGNED_SHORT, buffer);
++#endif
+     surface_create_from_flip_scale(dst, r.w, r.h, buffer, 1023.0f / 65535.0f);
+     omf_free(buffer);
+ }

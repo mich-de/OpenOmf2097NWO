@@ -1,0 +1,98 @@
+--- a/src/video/renderers/opengl3/sdl_window.c
++++ b/src/video/renderers/opengl3/sdl_window.c
+@@ -90,8 +90,13 @@
+     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+ 
+-    SDL_Window *w = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
+-                                     SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL);
++    Uint32 flags = SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL;
++#ifdef __EMSCRIPTEN__
++    // Web build: the page sizes the canvas with CSS. Resizable, SDL follows that size, and with
++    // high DPI the drawing buffer gets the screen's real pixels (1920x1080 on a full HD screen).
++    flags |= SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
++#endif
++    SDL_Window *w = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
+     if(w == NULL) {
+         log_error("Could not create window: %s", SDL_GetError());
+         return false;
+--- a/src/engine.c
++++ b/src/engine.c
+@@ -22,10 +22,54 @@
+ #include "video/video.h"
+ #include <SDL.h>
+ #include <stdio.h>
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ 
+ #define MAX_TICKS_PER_FRAME 10
+ #define TICK_EXPIRY_MS 100
+ 
++#ifdef __EMSCRIPTEN__
++// Web build: the window is the page's canvas, as large as the browser shows it. Draw the
++// 320x200 game into a framebuffer about as tall as the screen's real pixels, so a full HD
++// screen gets a 1600x1000 or larger image instead of an enlarged 320x200 one.
++#define WEB_MAX_FB_SCALE 6
++static void web_fit_video(void) {
++    SDL_Window *window = SDL_GL_GetCurrentWindow();
++    if(window == NULL) {
++        return;
++    }
++    int w, h, drawable_w, drawable_h;
++    SDL_GetWindowSize(window, &w, &h);
++    SDL_GL_GetDrawableSize(window, &drawable_w, &drawable_h);
++
++    const settings *setting = settings_get();
++    // the game's height on screen: the window's, or less when 4:3 leaves bands above and below
++    int game_h = setting->video.aspect == 0 ? min2(drawable_h, drawable_w * 3 / 4) : drawable_h;
++    // the page may ask for less (phones and tablets: their GPUs struggle at 6x)
++    int max_scale = clamp(EM_ASM_INT({ return Module.omfMaxScale || 0; }), 0, WEB_MAX_FB_SCALE);
++    int fb_scale = clamp((game_h + NATIVE_H - 1) / NATIVE_H, 1, max_scale ? max_scale : WEB_MAX_FB_SCALE);
++    // nearest neighbour scaling by a fraction drops rows; bilinear from the larger
++    // framebuffer keeps every pixel the same size (CRT stays CRT)
++    int scaling_mode = setting->video.scaling_mode == 0 ? 1 : setting->video.scaling_mode;
++
++    static int last_w, last_h, last_drawable_w, last_drawable_h, last_fb_scale;
++    if(w == last_w && h == last_h && drawable_w == last_drawable_w && drawable_h == last_drawable_h &&
++       fb_scale == last_fb_scale) {
++        return; // our own resize reporting back
++    }
++    last_w = w;
++    last_h = h;
++    last_drawable_w = drawable_w;
++    last_drawable_h = drawable_h;
++    last_fb_scale = fb_scale;
++
++    log_info("Web video: canvas %dx%d (%dx%d pixels), framebuffer %dx", w, h, drawable_w, drawable_h, fb_scale);
++    video_reinit(w, h, false, setting->video.vsync, setting->video.aspect, setting->video.framerate_limit, fb_scale,
++                 scaling_mode);
++}
++#endif
++
+ static int run = 0;
+ static int start_timeout = 30;
+ static int enable_screen_updates = 1;
+@@ -63,6 +107,9 @@
+     if(!video_init(renderer, w, h, fs, vsync, aspect, framerate_limit, fb_scale, scaling_mode)) {
+         goto exit_0;
+     }
++#ifdef __EMSCRIPTEN__
++    web_fit_video();
++#endif
+     if(!audio_init(player, frequency, mono, resampler, music_volume, sound_volume)) {
+         goto exit_1;
+     }
+@@ -289,6 +336,12 @@
+                             enable_screen_updates = 1;
+                             log_debug("SHOWN");
+                             break;
++#ifdef __EMSCRIPTEN__
++                        case SDL_WINDOWEVENT_SIZE_CHANGED:
++                            // the page resized the canvas (window resize, full screen)
++                            web_fit_video();
++                            break;
++#endif
+                     }
+                     break;
+             }
