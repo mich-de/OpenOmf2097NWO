@@ -370,7 +370,7 @@ index 1b1822ff..7574689d 100644
              }
              animation *ani = &bk_get_info(scene->bk_data, 3)->ani;
 diff --git a/src/game/scenes/melee.c b/src/game/scenes/melee.c
-index 3107690e..ce1efa4e 100644
+index 3107690e..287eaf7c 100644
 --- a/src/game/scenes/melee.c
 +++ b/src/game/scenes/melee.c
 @@ -5,6 +5,7 @@
@@ -428,7 +428,25 @@ index 3107690e..ce1efa4e 100644
      surface har_panel; // six column robot grid, unselected robots in grayscale
  
      portrait pilot_portraits[NUMBER_OF_PILOT_TYPES]; // Kreissack's (10) stays empty
-@@ -203,6 +214,9 @@ static void set_cursor_colors(int a_ticks, int b_ticks, bool a_done, bool b_done
+@@ -117,6 +128,8 @@ typedef struct {
+     text *wins[2];
+     text *har_title;
+     text *titles[2];
++    text *page_hint[2]; // NWO: which page of pilots is on screen, and how to reach the other
++    text *page_arrow[2];
+     text *player_name[2];
+     text *player_bio[2];
+     text *player_stats[3];
+@@ -166,6 +179,8 @@ void melee_free(scene *scene) {
+         text_free(&local->player_bio[i]);
+         text_free(&local->player_name[i]);
+         text_free(&local->titles[i]);
++        text_free(&local->page_hint[i]);
++        text_free(&local->page_arrow[i]);
+         text_free(&local->wins[i]);
+     }
+     for(int i = 0; i < 3; i++) {
+@@ -203,6 +218,9 @@ static void set_cursor_colors(int a_ticks, int b_ticks, bool a_done, bool b_done
      vga_state_set_base_palette_index(VIOLET_CURSOR_INDEX, &violet_cursor_color);
  }
  
@@ -438,7 +456,7 @@ index 3107690e..ce1efa4e 100644
  static void load_pilot_portraits_palette(scene *scene) {
      vga_palette *bk_pal = bk_get_palette(scene->bk_data, 0);
      // copy and dim for unselected pilot portraits
-@@ -215,7 +229,7 @@ static void load_pilot_portraits_palette(scene *scene) {
+@@ -215,7 +233,7 @@ static void load_pilot_portraits_palette(scene *scene) {
          bk_pal->colors[idx] = src;
      }
      vga_state_set_base_palette_from_range(bk_pal, 0x00, 0x00, 0x60);
@@ -447,7 +465,7 @@ index 3107690e..ce1efa4e 100644
  }
  
  static bool check_pilot_stat_cheat(scene *scene, int player_id) {
-@@ -367,6 +381,7 @@ static void load_pilot_stats(scene *scene, int player_id) {
+@@ -367,6 +385,7 @@ static void load_pilot_stats(scene *scene, int player_id) {
          text_set_from_c(local->player_bio[player_id], pilot_get_lang_bio(pilot_id));
          text_set_from_c(local->player_name[player_id], pilot_get_lang_name(pilot_id));
          object_select_sprite(big_portrait, pilot_id);
@@ -455,7 +473,7 @@ index 3107690e..ce1efa4e 100644
      }
  
      player->pilot->endurance = p_a.endurance;
-@@ -406,6 +421,7 @@ void handle_action(scene *scene, int player, int action) {
+@@ -406,6 +425,7 @@ void handle_action(scene *scene, int player, int action) {
  
      int old_row = *row;
      int old_column = *column;
@@ -463,7 +481,7 @@ index 3107690e..ce1efa4e 100644
      int last_column = EXTRA_COLUMN;
  
      switch(action) {
-@@ -418,6 +434,8 @@ void handle_action(scene *scene, int player, int action) {
+@@ -418,6 +438,8 @@ void handle_action(scene *scene, int player, int action) {
                  *column = last_column;
                  if(local->page == PILOT_SELECT) {
                      local->cheat_pilot_stats[player] |= *row + 1;
@@ -472,7 +490,7 @@ index 3107690e..ce1efa4e 100644
                  }
              }
              reset_cursor_blinky(local, player);
-@@ -428,6 +446,7 @@ void handle_action(scene *scene, int player, int action) {
+@@ -428,6 +450,7 @@ void handle_action(scene *scene, int player, int action) {
                  *column = 0;
                  if(local->page == PILOT_SELECT) {
                      local->cheat_pilot_stats[player] |= *row + 1;
@@ -480,7 +498,7 @@ index 3107690e..ce1efa4e 100644
                  }
              }
              reset_cursor_blinky(local, player);
-@@ -516,6 +535,7 @@ void handle_action(scene *scene, int player, int action) {
+@@ -516,6 +539,7 @@ void handle_action(scene *scene, int player, int action) {
                      local->pilot_id_a = CURSOR_INDEX(local, 0);
                      local->pilot_id_b = CURSOR_INDEX(local, 1);
                      local->page = HAR_SELECT;
@@ -488,7 +506,7 @@ index 3107690e..ce1efa4e 100644
                      update_har(scene, 0);
                      update_har(scene, 1);
  
-@@ -577,7 +597,11 @@ void handle_action(scene *scene, int player, int action) {
+@@ -577,7 +601,11 @@ void handle_action(scene *scene, int player, int action) {
              break;
      }
  
@@ -501,7 +519,7 @@ index 3107690e..ce1efa4e 100644
          // column 0..5 → panning -50..+50
          int panning = (*column) * 100 / 5 - 50;
          audio_play_sound_simple(19, panning);
-@@ -609,16 +633,18 @@ void handle_action(scene *scene, int player, int action) {
+@@ -609,16 +637,18 @@ void handle_action(scene *scene, int player, int action) {
  static void restore_cursors_to(melee_local *local, unsigned a, unsigned b) {
      unsigned ids[2] = {a, b};
      for(int i = 0; i < 2; i++) {
@@ -527,7 +545,7 @@ index 3107690e..ce1efa4e 100644
          } else {
              unsigned id = ids[i] == HAR_NOVA ? HAR_FLAIL : ids[i];
              local->cursor[i].column = id % 5;
-@@ -668,6 +694,7 @@ void melee_input_tick(scene *scene) {
+@@ -668,6 +698,7 @@ void melee_input_tick(scene *scene) {
                  // restore the player selection
                  local->page = PILOT_SELECT;
                  restore_cursors_to(local, local->pilot_id_a, local->pilot_id_b);
@@ -535,7 +553,7 @@ index 3107690e..ce1efa4e 100644
                  load_pilot_portraits_palette(scene);
              } else if(scene->gs->net_mode == NET_MODE_LOBBY) {
                  // came from the network lobby (challenge arena); go back there
-@@ -681,6 +708,9 @@ void melee_input_tick(scene *scene) {
+@@ -681,6 +712,9 @@ void melee_input_tick(scene *scene) {
  }
  
  static void draw_highlight(const melee_local *local, const cursor_data *cursor, int offset) {
@@ -545,7 +563,7 @@ index 3107690e..ce1efa4e 100644
      video_draw_offset(&local->har_hilight, HAR_CELL_X(cursor->column), HAR_CELL_Y(cursor->row), offset, 255);
  }
  
-@@ -759,12 +789,19 @@ static void render_pilot_select(melee_local *local, bool player2_is_selectable)
+@@ -759,12 +793,24 @@ static void render_pilot_select(melee_local *local, bool player2_is_selectable)
          text_draw(local->titles[0], 160, 97);
      }
  
@@ -553,6 +571,11 @@ index 3107690e..ce1efa4e 100644
 +        return; // not built yet
 +    }
      video_draw(&local->pilot_panel, 0, PILOT_PANEL_Y);
++    text_draw(local->page_hint[local->pilot_page_shown], 0, PILOT_PANEL_Y + 1);
++    if(local->ticks / 20 % 2 == 0) { // blinking, at the grid's edges: there are more pilots past them
++        text_draw(local->page_arrow[0], 0, HAR_CELL_Y(1) - 6);
++        text_draw(local->page_arrow[1], 320 - 7, HAR_CELL_Y(1) - 6);
++    }
      render_highlights(local, player2_is_selectable);
 -    render_enabled_portrait(local->pilot_portraits, CURSOR_INDEX(local, 0), -1);
 +    if(local->cursor[0].pilot_page == local->pilot_page_shown) {
@@ -567,7 +590,7 @@ index 3107690e..ce1efa4e 100644
          object_render(&local->big_portrait_2);
      }
  }
-@@ -912,50 +949,48 @@ static void load_af_portrait(melee_local *local, int har_id, vga_pixel cell_colo
+@@ -912,50 +958,48 @@ static void load_af_portrait(melee_local *local, int har_id, vga_pixel cell_colo
      }
  }
  
@@ -653,7 +676,7 @@ index 3107690e..ce1efa4e 100644
      surface_create(&local->pilot_panel, 320, 200 - PILOT_PANEL_Y);
      surface_set_transparency(&local->pilot_panel, -1);
      for(int y = 0; y < local->pilot_panel.h; y++) {
-@@ -963,17 +998,41 @@ static void load_pilot_portraits(scene *scene, melee_local *local) {
+@@ -963,17 +1007,41 @@ static void load_pilot_portraits(scene *scene, melee_local *local) {
              local->pilot_panel.data[y * 320 + x] = bg->data[(PILOT_PANEL_Y + y) * bg->w + har_panel_source_x(x)];
          }
      }
@@ -706,7 +729,7 @@ index 3107690e..ce1efa4e 100644
          }
      }
  }
-@@ -1096,9 +1155,10 @@ int melee_create(scene *scene) {
+@@ -1096,9 +1164,10 @@ int melee_create(scene *scene) {
          palette_load_player_colors(&player2->pilot->palette, 1);
      } else {
          local->page = PILOT_SELECT;
@@ -719,7 +742,18 @@ index 3107690e..ce1efa4e 100644
  
          load_pilot_portraits_palette(scene);
      }
-@@ -1160,10 +1220,13 @@ int melee_create(scene *scene) {
+@@ -1123,6 +1192,10 @@ int melee_create(scene *scene) {
+     // Page titles. These are static.
+     local->titles[0] = create_green_text(160, 6, lang_get(187)); // 'choose your pilot'
+     local->titles[1] = create_green_text(160, 6, lang_get(186)); // 'choose your robot'
++    local->page_hint[0] = create_green_text(320, 6, "< PAGE 1 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
++    local->page_hint[1] = create_green_text(320, 6, "< PAGE 2 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
++    local->page_arrow[0] = create_green_text(7, 6, "<");
++    local->page_arrow[1] = create_green_text(7, 6, ">");
+ 
+     // This is used to either show the selected HAR name or both in the "X VS. Y" format.
+     local->har_title = create_black_text(320, 6, har_get_name(CURSOR_INDEX(local, 0)));
+@@ -1160,10 +1233,13 @@ int melee_create(scene *scene) {
      for(int i = 0; i < HAR_NOVA; i++) {
          har_upscale_animation(&bk_get_info(scene->bk_data, 18 + i)->ani);
      }

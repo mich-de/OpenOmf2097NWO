@@ -368,11 +368,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%s.png is %dx%d, expected %dx%d\n", pilot_art[n], art.w, art.h, ART_SIZE, ART_SIZE);
             return 1;
         }
-        // the head, with a little of the shoulders, as the original pictures frame it
-        faces[n] = resample(&art, 44, 22, 164, 164, FACE_SIZE, FACE_SIZE);
+        // the head filling the picture, as the original pictures frame it
+        faces[n] = resample(&art, 46, 32, 144, 144, FACE_SIZE, FACE_SIZE);
         // the face, at the icons' 51:36
-        const float crop_w = 168, crop_h = crop_w * ICON_H / ICON_W;
-        icons[n] = resample(&art, (ART_SIZE - crop_w) / 2, 46, crop_w, crop_h, ICON_W, ICON_H);
+        const float crop_w = 200, crop_h = crop_w * ICON_H / ICON_W;
+        icons[n] = resample(&art, 24, 34, crop_w, crop_h, ICON_W, ICON_H);
         free(art.px);
     }
     return write_pictures(argv[1], faces, icons) || add_pilots(argv[1], "MELEE.BK", true, faces, icons) ||
