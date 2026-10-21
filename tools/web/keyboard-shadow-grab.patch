@@ -1,0 +1,73 @@
+--- a/src/game/gui/textinput.c
++++ b/src/game/gui/textinput.c
+@@ -1,6 +1,9 @@
+ #include <SDL.h>
+ #include <stdlib.h>
+ #include <string.h>
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ 
+ #include "controller/controller.h"
+ #include "game/gui/text/text.h"
+@@ -104,6 +107,11 @@
+     if(component_is_selected(c)) {
+         set_cursor(c, true);
+         text_set_color(ti->text, theme->text.active_color);
++#ifdef __EMSCRIPTEN__
++        // Web build: a field is waiting for typing; the page shows its on-screen keyboard while
++        // this keeps being called (phones and tablets have no keys to type with otherwise)
++        EM_ASM({ if(Module.omfTextField) Module.omfTextField(); });
++#endif
+     } else if(component_is_disabled(c)) {
+         set_cursor(c, false);
+         text_set_color(ti->text, theme->text.disabled_color);
+--- a/src/game/objects/har.c
++++ b/src/game/objects/har.c
+@@ -1464,6 +1464,15 @@
+     return 0;
+ }
+ 
++// Web build: a shadow's grab (Shadow's projectiles) holds its victim for the move's throw duration
++// as a throw does, and frozen too: no input, no animation, until it lets go. A throw's victim
++// plays the thrower's animation instead, so throws only set throw_duration.
++static void har_shadow_hold(object *o_har, int ticks) {
++    har *h = object_get_userdata(o_har);
++    h->throw_duration = ticks;
++    object_set_halt_ticks(o_har, ticks);
++}
++
+ void har_collide_with_projectile(object *o_har, object *o_pjt) {
+     har *h = object_get_userdata(o_har);
+     const af *prog_owner_af_data = projectile_get_af_data(o_pjt);
+@@ -1561,6 +1570,10 @@
+ 
+         if(move->next_move) {
+             log_debug("PROJECTILE %d going to next move %d on HIT", object_get_animation(o_pjt)->id, move->next_move);
++            // Web build: a grabbing shadow ("ag") holds the opponent while the move it turns into hits
++            if(player_frame_isset(o_pjt, TAG_AG)) {
++                har_shadow_hold(o_har, move->throw_duration);
++            }
+             object_set_animation(o_pjt, &af_get_move(prog_owner_af_data, move->next_move)->ani);
+             object_set_repeat(o_pjt, 0);
+             return;
+@@ -1581,13 +1594,18 @@
+             // face B to the direction they're being attacked from
+             object_set_direction(o_har, -object_get_direction(o_pjt));
+ 
++            // Web build: Shadow's grabbing shadows ("ag") hold the opponent where they are for the
++            // move's throw duration, as a throw does, and only then does the hit land.
++            if(player_frame_isset(o_pjt, TAG_AG)) {
++                har_shadow_hold(o_har, move->throw_duration);
++            }
+             har_take_damage(o_har, move);
+             if(air_hit) {
+                 o_har->vel.y -= 3;
+             }
+         } else if(move->category == CAT_CLOSE) {
+             // shadow grab is a projectile
+-            h->throw_duration = move->throw_duration;
++            har_shadow_hold(o_har, move->throw_duration); // web build: frozen, not only kept in place
+         }
+ 
+         projectile_mark_hit(o_pjt);

@@ -153,6 +153,12 @@
     position: absolute; right: calc(env(safe-area-inset-right) + 10px); bottom: calc(env(safe-area-inset-bottom) + 10px);
     display: flex; flex-direction: column; align-items: center; gap: 6px;
   }
+  /* On-screen keyboard, while the game waits for typing (a name): it takes the pad's place. */
+  #touch #kbd {
+    position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 10px); transform: translateX(-50%);
+    width: calc(var(--w) * var(--k)); height: calc(var(--h) * var(--k));
+  }
+  #touch .off { display: none; }
 </style>
 </head>
 <body>
@@ -186,6 +192,7 @@
   <div id="sys"><canvas id="esc" aria-hidden="true"></canvas></div>
   <canvas id="pad" aria-hidden="true"></canvas>
   <div id="fight"><canvas id="kick" aria-hidden="true"></canvas><canvas id="punch" aria-hidden="true"></canvas></div>
+  <canvas id="kbd" class="off" aria-hidden="true"></canvas>
 </div>
 
 <script src="netfont.js"></script>
@@ -386,6 +393,7 @@
     enter: { key: "Enter", code: "Enter", vk: 13 },
     esc: { key: "Escape", code: "Escape", vk: 27 },
     rShift: { key: "Shift", code: "ShiftRight", vk: 16, location: 2 },
+    backspace: { key: "Backspace", code: "Backspace", vk: 8 },
   };
   // Eight directions clockwise from "right" (screen y grows downwards). A diagonal holds two
   // arrows, as on a keyboard, so rolling from Down to Down-Left only adds Left: the game never
@@ -585,9 +593,81 @@
     cv.addEventListener("pointercancel", end);
   }
 
+  // ---------- on-screen keyboard ----------
+  // Phones and tablets have no keys to type a name with. While the game shows a text field it
+  // calls Module.omfTextField() every frame (game/gui/textinput.c); the keyboard shows until the
+  // calls stop. Letters reach the game as keypress events, which SDL turns into text input
+  // without the key presses the controls would read; Delete and OK are Backspace and Enter.
+  const kbdCv = $("kbd");
+  const KW = 14, KH = 15; // a key's cell, its 1px gap included
+  const KBD_ROWS = ["1234567890", "QWERTYUIOP", "ASDFGHJKL-", "ZXCVBNM.'!"];
+  const kbdKeys = [];
+  KBD_ROWS.forEach((row, r) => [...row].forEach((ch, i) => kbdKeys.push({ x: i * KW, y: r * KH, w: KW, ch })));
+  kbdKeys.push({ x: 0, y: 4 * KH, w: 2 * KW, label: "abc", act: "shift" });
+  kbdKeys.push({ x: 2 * KW, y: 4 * KH, w: 4 * KW, label: "SPACE", ch: " " });
+  kbdKeys.push({ x: 6 * KW, y: 4 * KH, w: 2 * KW, label: "DEL", act: "del" });
+  kbdKeys.push({ x: 8 * KW, y: 4 * KH, w: 2 * KW, label: "OK", act: "ok" });
+  const KBD_W = 10 * KW - 1, KBD_H = 5 * KH - 1;
+  let lower = false, lastField = -1e9, kbdShown = false;
+
+  function drawKbd(downKey) {
+    const ctx = sizeCanvas(kbdCv, KBD_W, KBD_H);
+    for (const k of kbdKeys) {
+      const down = k === downKey, w = k.w - 1, h = KH - 1;
+      ctx.fillStyle = down ? C.hot : C.text;
+      ctx.fillRect(k.x, k.y, w, h);
+      ctx.fillStyle = down ? PRESSED_FILL : C.panel;
+      ctx.fillRect(k.x + 1, k.y + 1, w - 2, h - 2);
+      const label = k.label ? (k.act === "shift" && lower ? "ABC" : k.label) : lower ? k.ch.toLowerCase() : k.ch;
+      const col = down ? C.hot : k.act === "ok" ? C.label : C.body;
+      drawText(ctx, label, k.x + Math.floor((w - textW(label)) / 2), k.y + 2, col, C.ink);
+    }
+  }
+
+  function typeChar(ch) {
+    const ev = new KeyboardEvent("keypress", { key: ch, bubbles: true, cancelable: true });
+    for (const p of ["charCode", "keyCode", "which"]) Object.defineProperty(ev, p, { get: () => ch.charCodeAt(0) });
+    $("canvas").dispatchEvent(ev);
+  }
+  // A key held for one frame at least: the game reads Enter (OK) once per frame.
+  function tapKey(k) {
+    keyDown(k);
+    setTimeout(() => keyUp(k), MIN_PRESS_MS);
+  }
+
+  function bindKbd() {
+    let lit = null;
+    kbdCv.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      const r = kbdCv.getBoundingClientRect();
+      const x = (e.clientX - r.left) * KBD_W / r.width, y = (e.clientY - r.top) * KBD_H / r.height;
+      const k = kbdKeys.find((k) => x >= k.x && x < k.x + k.w && y >= k.y && y < k.y + KH);
+      if (!k) return;
+      if (k.act === "shift") lower = !lower;
+      else if (k.act === "del") tapKey(KEY.backspace);
+      else if (k.act === "ok") tapKey(KEY.enter);
+      else typeChar(lower ? k.ch.toLowerCase() : k.ch);
+      navigator.vibrate?.(8);
+      lit = k;
+      drawKbd(k);
+      setTimeout(() => { if (lit === k) { lit = null; drawKbd(null); } }, 120);
+    });
+  }
+
+  function showKbd(on) {
+    if (on === kbdShown) return;
+    kbdShown = on;
+    releaseAll();
+    kbdCv.classList.toggle("off", !on);
+    $("pad").classList.toggle("off", on);
+    $("fight").classList.toggle("off", on);
+  }
+
   function layoutTouch() {
     const t = Math.max(2, Math.min(5, Math.floor(Math.min(innerWidth, innerHeight) / 120)));
     touchEl.style.setProperty("--t", t + "px");
+    // the keyboard as large as the pad's pixels, narrower where the screen is
+    touchEl.style.setProperty("--k", Math.max(1, Math.min(t, Math.floor((innerWidth - 20) / KBD_W))) + "px");
   }
 
   function showTouch() {
@@ -601,6 +681,10 @@
     bindButton(punchCv, KEY.enter, drawPunch);
     bindButton(kickCv, KEY.rShift, drawKick);
     bindButton(escCv, KEY.esc, drawEsc);
+    drawKbd(null);
+    bindKbd();
+    window.Module.omfTextField = () => { lastField = performance.now(); };
+    setInterval(() => showKbd(performance.now() - lastField < 300), 100);
     touchEl.addEventListener("contextmenu", (e) => e.preventDefault());
     addEventListener("resize", layoutTouch);
     addEventListener("blur", releaseAll);

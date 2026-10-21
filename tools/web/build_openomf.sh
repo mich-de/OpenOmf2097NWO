@@ -113,6 +113,11 @@ grep -q "PILOT_TRUMP" "$SRC/src/game/common_defines.h" || \
 grep -q "nwo_pilot_get" "$SRC/src/game/common_defines.c" || \
     git -C "$SRC" apply "$REPO/tools/web/nwo-pilots.patch"
 
+# The page's on-screen keyboard while a text field waits for typing (Module.omfTextField);
+# Shadow's grabbing shadows freeze their victim for the move's throw duration.
+grep -q "omfTextField" "$SRC/src/game/gui/textinput.c" || \
+    git -C "$SRC" apply "$REPO/tools/web/keyboard-shadow-grab.patch"
+
 # --- epoxy shim (libepoxy stand-in) -------------------------------------------
 mkdir -p "$B/shim"
 emcc -O2 -I"$SHIM" -c "$SHIM/epoxy_shim.c" -o "$B/shim/epoxy_shim.o"
