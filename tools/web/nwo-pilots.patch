@@ -370,7 +370,7 @@ index 1b1822ff..7574689d 100644
              }
              animation *ani = &bk_get_info(scene->bk_data, 3)->ani;
 diff --git a/src/game/scenes/melee.c b/src/game/scenes/melee.c
-index 3107690e..287eaf7c 100644
+index 3107690e..51f2b1f8 100644
 --- a/src/game/scenes/melee.c
 +++ b/src/game/scenes/melee.c
 @@ -5,6 +5,7 @@
@@ -742,18 +742,20 @@ index 3107690e..287eaf7c 100644
  
          load_pilot_portraits_palette(scene);
      }
-@@ -1123,6 +1192,10 @@ int melee_create(scene *scene) {
+@@ -1123,6 +1192,12 @@ int melee_create(scene *scene) {
      // Page titles. These are static.
      local->titles[0] = create_green_text(160, 6, lang_get(187)); // 'choose your pilot'
      local->titles[1] = create_green_text(160, 6, lang_get(186)); // 'choose your robot'
-+    local->page_hint[0] = create_green_text(320, 6, "< PAGE 1 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
-+    local->page_hint[1] = create_green_text(320, 6, "< PAGE 2 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
++    // with two players, only the page fits between their wins
++    bool two_players = game_state_get_player(scene->gs, 1)->selectable;
++    local->page_hint[0] = create_green_text(320, 6, two_players ? "< PAGE 1 OF 2 >" : "< PAGE 1 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
++    local->page_hint[1] = create_green_text(320, 6, two_players ? "< PAGE 2 OF 2 >" : "< PAGE 2 OF 2 >   12 MORE PILOTS: LEFT/RIGHT");
 +    local->page_arrow[0] = create_green_text(7, 6, "<");
 +    local->page_arrow[1] = create_green_text(7, 6, ">");
  
      // This is used to either show the selected HAR name or both in the "X VS. Y" format.
      local->har_title = create_black_text(320, 6, har_get_name(CURSOR_INDEX(local, 0)));
-@@ -1160,10 +1233,13 @@ int melee_create(scene *scene) {
+@@ -1160,10 +1235,13 @@ int melee_create(scene *scene) {
      for(int i = 0; i < HAR_NOVA; i++) {
          har_upscale_animation(&bk_get_info(scene->bk_data, 18 + i)->ani);
      }

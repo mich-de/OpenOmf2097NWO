@@ -16,7 +16,7 @@
 
 **▶ [Play it now in your browser → mich-de.github.io/OpenOmf2097NWO](https://mich-de.github.io/OpenOmf2097NWO/)**
 
-<img src="screenshots/GAMEPLAY_native_fight.png" alt="Crystal Jaguar and Cossette Flail fight in a native WebAssembly build of OpenOMF" width="820">
+<img src="screenshots/GAMEPLAY_native_fight.png" alt="Trump (Jaguar) and Xi (Flail) fight in a native WebAssembly build of OpenOMF" width="820">
 
 *Native WebAssembly build (OpenOMF): no emulator, WebGL2, the game's own 320x200 frame.*
 
@@ -71,7 +71,7 @@ A satirical edition: the pilots are public figures of the conflicts and diplomac
 | | |
 |:---:|:---:|
 | <img src="screenshots/GAMEPLAY_native_menu.png" width="400"><br>Main menu, native build | <img src="screenshots/GAMEPLAY_pilots.png" width="400"><br>24 pilots on two pages |
-| <img src="screenshots/GAMEPLAY_versus.png" width="400"><br>Trash talk before the fight | <img src="screenshots/GAMEPLAY_native_fight.png" width="400"><br>Live fight with HUD and health bars |
+| <img src="screenshots/GAMEPLAY_versus.png" width="400"><br>Trump vs. Xi: the VS screen | <img src="screenshots/GAMEPLAY_native_fight.png" width="400"><br>Trump vs. Xi: live fight with HUD and health bars |
 | <img src="screenshots/GAMEPLAY_touch_menu.png" width="400"><br>Phone: menu with the on-screen pad | <img src="screenshots/GAMEPLAY_touch_splash.png" width="400"><br>Phone: splash, controls in the corners |
 | <img src="screenshots/GAMEPLAY_robots.png" width="400"><br>Twelve robots: Nova and Ocelot in a sixth column | <img src="screenshots/GAMEPLAY_ocelot.png" width="400"><br>Ocelot spits fire |
 
