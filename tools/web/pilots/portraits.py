@@ -34,6 +34,38 @@ def eyes(color="#3a3a46", brows="#3a2a20", look="even", narrow=False):
 <polygon points="126,{93 + tilt[0]} 150,{95 + tilt[1]} 150,{99 + tilt[1]} 126,{98 + tilt[0]}" fill="{brows}"/>'''
 
 
+def details(p, shade):
+    """The features that make a caricature: age, eyelids, jowls, cheeks."""
+    out = []
+    if p.get("eye_patches"):  # paler skin around the eyes (a tanning bed's goggles)
+        out.append('<ellipse cx="102" cy="106" rx="15" ry="9" fill="#f3d6b0"/><ellipse cx="138" cy="106" rx="15" ry="9" fill="#f3d6b0"/>')
+    if p.get("jowls"):
+        out.append(f'<path d="M 78,128 C 74,160 92,176 104,176 L 100,160 C 90,154 84,142 82,126 Z" fill="{shade}"/>'
+                   f'<path d="M 162,128 C 166,160 148,176 136,176 L 140,160 C 150,154 156,142 158,126 Z" fill="{shade}"/>')
+    if p.get("cheeks"):
+        out.append('<ellipse cx="92" cy="130" rx="12" ry="9" fill="#e07a6a" opacity=".35"/><ellipse cx="148" cy="130" rx="12" ry="9" fill="#e07a6a" opacity=".35"/>')
+    return "".join(out)
+
+
+def lines(p, shade):
+    """Drawn over the eyes: wrinkles, eye bags, heavy lids."""
+    out = []
+    if p.get("age"):
+        out.append(f'<path d="M 92,80 C 110,76 130,76 148,80" fill="none" stroke="{shade}" stroke-width="2.5"/>'
+                   f'<path d="M 96,86 C 112,83 128,83 144,86" fill="none" stroke="{shade}" stroke-width="2"/>'
+                   f'<path d="M 108,132 C 98,140 98,148 100,156" fill="none" stroke="{shade}" stroke-width="2.5"/>'
+                   f'<path d="M 132,132 C 142,140 142,148 140,156" fill="none" stroke="{shade}" stroke-width="2.5"/>')
+    if p.get("bags"):
+        out.append(f'<path d="M 92,113 C 98,118 108,118 112,113" fill="none" stroke="{shade}" stroke-width="2.5"/>'
+                   f'<path d="M 128,113 C 132,118 142,118 148,113" fill="none" stroke="{shade}" stroke-width="2.5"/>')
+    if p.get("lids"):
+        face = SKIN[p.get("skin", "light")][0]
+        out.append(f'<rect x="91" y="99" width="22" height="6" fill="{face}"/><rect x="127" y="99" width="22" height="6" fill="{face}"/>'
+                   f'<line x1="92" y1="105" x2="112" y2="105" stroke="{shade}" stroke-width="2"/>'
+                   f'<line x1="128" y1="105" x2="148" y2="105" stroke="{shade}" stroke-width="2"/>')
+    return "".join(out)
+
+
 def nose(shade):
     return f'<polygon points="118,110 128,130 112,132" fill="{shade}"/>'
 
@@ -44,6 +76,10 @@ def mouth(kind="neutral"):
                 '<path d="M 104,148 C 114,153 126,153 136,148 C 126,151 114,151 104,148 Z" fill="#f4f0ea"/>')
     if kind == "pursed":
         return '<ellipse cx="120" cy="147" rx="11" ry="7" fill="#9c3b34"/><ellipse cx="120" cy="147" rx="5" ry="3" fill="#6e2420"/>'
+    if kind == "smirk":
+        return '<path d="M 104,148 C 116,150 128,146 140,140" fill="none" stroke="#8a4a40" stroke-width="4"/>'
+    if kind == "small":
+        return '<rect x="112" y="146" width="16" height="3" fill="#8a4a40"/>'
     if kind == "grin":
         return '<path d="M 98,144 C 108,162 132,162 142,144 Z" fill="#7a2f2a"/><path d="M 101,145 L 139,145 L 136,150 L 104,150 Z" fill="#f4f0ea"/>'
     return '<rect x="106" y="145" width="28" height="4" fill="#8a4a40"/>'
@@ -77,6 +113,14 @@ HAIR = {
 <path d="M 86,62 C 108,42 146,42 168,66 C 146,58 110,56 86,62 Z" fill="{h}"/>''',
     "volume": lambda c, h: f'''<path d="M 72,98 C 66,50 88,22 122,20 C 156,20 178,48 170,96 C 166,74 154,58 122,56 C 92,56 78,72 72,98 Z" fill="{c}"/>
 <rect x="72" y="74" width="10" height="34" fill="#c8aa90"/><rect x="160" y="74" width="10" height="34" fill="#c8aa90"/>''',
+    "undercut": lambda c, h: f'''<path d="M 80,74 C 78,32 104,18 124,18 C 148,18 170,30 166,74 C 156,60 140,54 122,54 C 100,54 88,60 80,74 Z" fill="{c}"/>
+<path d="M 76,78 L 80,74 L 80,104 L 76,104 Z" fill="#6a5a50"/><path d="M 166,74 L 170,78 L 170,104 L 166,104 Z" fill="#6a5a50"/>
+<path d="M 96,30 C 112,22 136,22 152,30 C 134,28 114,28 96,30 Z" fill="{h}"/>''',
+    "coif": lambda c, h: f'''<path d="M 62,120 C 50,66 70,20 120,16 C 172,16 194,64 180,120 C 176,92 168,76 152,68 C 132,58 104,58 88,68 C 74,78 66,96 62,120 Z" fill="{c}"/>
+<path d="M 74,62 C 92,30 150,26 172,58 C 150,44 104,42 74,62 Z" fill="{h}"/>
+<path d="M 64,118 C 58,140 62,150 70,156 C 68,140 68,128 70,116 Z" fill="{c}"/><path d="M 178,118 C 184,140 180,150 172,156 C 174,140 174,128 172,116 Z" fill="{c}"/>''',
+    "slick": lambda c, h: f'''<path d="M 72,94 C 66,48 92,26 122,26 C 154,26 176,48 170,94 C 164,70 150,58 122,56 C 96,56 80,68 72,94 Z" fill="{c}"/>
+<path d="M 84,58 C 100,38 142,36 162,56 M 90,50 C 106,34 140,32 156,48" fill="none" stroke="{h}" stroke-width="3"/>''',
     "combover": lambda c, h: f'''<path d="M 72,98 C 68,62 90,42 120,40 C 150,40 170,58 168,96 C 156,70 130,58 100,60 C 88,64 78,80 72,98 Z" fill="{c}"/>
 <path d="M 80,62 C 110,46 150,48 170,70 C 148,60 112,56 80,62 Z" fill="{h}"/>''',
 }
@@ -103,6 +147,8 @@ HEADWEAR = {
                     '<path d="M 70,80 C 96,62 144,62 170,80" fill="none" stroke="#2a2a34" stroke-width="5"/>',
     "turban white": '<path d="M 64,92 C 58,40 92,22 120,22 C 148,22 182,40 176,92 C 160,76 140,70 120,70 C 100,70 80,76 64,92 Z" fill="#e8e4d8"/>'
                     '<path d="M 70,80 C 96,62 144,62 170,80" fill="none" stroke="#c8c2b0" stroke-width="5"/>',
+    "shemagh": '<path d="M 58,210 C 50,120 60,40 120,34 C 180,40 190,120 182,210 C 172,160 170,110 164,84 C 150,68 90,68 76,84 C 70,110 68,160 58,210 Z" fill="url(#check)"/>'
+               '<path d="M 70,62 C 96,46 144,46 170,62 L 170,74 C 144,58 96,58 70,74 Z" fill="#141414"/>',
     "ghutra": '<path d="M 58,210 C 50,120 60,40 120,34 C 180,40 190,120 182,210 C 172,160 170,110 164,84 C 150,68 90,68 76,84 C 70,110 68,160 58,210 Z" fill="#f2f2f2"/>'
               '<path d="M 70,62 C 96,46 144,46 170,62 L 170,74 C 144,58 96,58 70,74 Z" fill="#141414"/>',
 }
@@ -137,13 +183,15 @@ def portrait(p):
     parts = [outfit(*p.get("outfit", ("suit",)))]
     if p.get("pearls"):
         parts.append(pearls())
-    if p.get("headwear") == "ghutra":
-        parts.append(HEADWEAR["ghutra"])
+    if p.get("headwear") in ("ghutra", "shemagh"):
+        parts.append(HEADWEAR[p["headwear"]])
     if p.get("hair_back"):
         parts.append(hair(p["hair_back"], *p["hair_colors"]))
     parts.append(head(p.get("skin", "light"), p.get("wide", 1.0), p.get("jaw", 1.0)))
+    parts.append(details(p, shade))
     parts.append(facial(p.get("facial", ""), p.get("facial_color", "#2a1e18")))
     parts.append(eyes(p.get("eye_color", "#3a3a46"), p.get("brows", "#3a2a20"), p.get("look", "even"), p.get("narrow", False)))
+    parts.append(lines(p, shade))
     parts.append(nose(shade))
     parts.append(mouth(p.get("mouth", "neutral")))
     if p.get("mustache"):
@@ -154,63 +202,67 @@ def portrait(p):
         parts.append(hair(p["hair"], *p["hair_colors"]))
     if p.get("headwear") in ("turban black", "turban white"):
         parts.append(HEADWEAR[p["headwear"]])
-    if p.get("headwear") == "ghutra":
-        parts.append(HEADWEAR["ghutra"].split("/>", 1)[1])  # the agal again, over the forehead
-    return ('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">'
+    if p.get("headwear") in ("ghutra", "shemagh"):
+        parts.append(HEADWEAR[p["headwear"]].split("/>", 1)[1])  # the agal again, over the forehead
+    check = ('<defs><pattern id="check" width="12" height="12" patternUnits="userSpaceOnUse">'
+             '<rect width="12" height="12" fill="#f4f0ea"/><rect width="6" height="6" fill="#c8202a"/>'
+             '<rect x="6" y="6" width="6" height="6" fill="#c8202a"/></pattern></defs>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">' + check
             + "".join(parts) + "</svg>")
 
 
 NAVY, CHARCOAL, BLACK, GREY = "#1e2a5a", "#2a2c34", "#16161c", "#4a4e58"
 PILOTS = {
-    "trump": dict(skin="tan", hair="swept", hair_colors=("#e8c060", "#f6d987"), mouth="pursed", wide=1.04,
-                  outfit=("suit", NAVY, "#c8152a")),
-    "musk": dict(skin="fair", hair="short", hair_colors=("#3a2a22", "#4e3a2e"), mouth="smile", eye_color="#3c5878",
-                 outfit=("tee", BLACK)),
+    "trump": dict(skin="tan", hair="swept", hair_colors=("#e8c060", "#f6d987"), mouth="pursed", wide=1.1, jaw=1.04,
+                  eye_patches=True, narrow=True, jowls=True, look="stern", age=True, outfit=("suit", NAVY, "#c8152a")),
+    "musk": dict(skin="fair", hair="short", hair_colors=("#3a2a22", "#4e3a2e"), mouth="smirk", eye_color="#3c5878",
+                 jaw=1.06, bags=True, outfit=("tee", BLACK)),
     "meloni": dict(skin="fair", hair="long", hair_colors=("#d8b46a", "#ecd08e"), mouth="smile", brows="#8a6a40",
-                   eye_color="#4a6a8a", jaw=0.92, outfit=("open", BLACK, None, "#f4f4f4")),
-    "macron": dict(skin="fair", hair="side", hair_colors=("#4a3428", "#5e4434"), eye_color="#3c5878",
-                   outfit=("suit", NAVY, "#1c2440")),
-    "scholz": dict(skin="fair", hair="bald", hair_colors=("#9a9a9a", "#bbbbbb"), wide=1.06, look="worried",
-                   outfit=("suit", CHARCOAL, "#5a6a8a")),
+                   eye_color="#4a6a8a", jaw=0.9, cheeks=True, outfit=("open", BLACK, None, "#f4f4f4")),
+    "macron": dict(skin="fair", hair="side", hair_colors=("#4a3428", "#5e4434"), eye_color="#2c6aa8", mouth="smirk",
+                   jaw=0.96, outfit=("suit", NAVY, "#1c2440")),
+    "scholz": dict(skin="fair", hair="bald", hair_colors=("#9a9a9a", "#bbbbbb"), wide=1.08, mouth="smirk",
+                   lids=True, age=True, outfit=("suit", CHARCOAL, "#5a6a8a")),
     "starmer": dict(skin="fair", hair="side", hair_colors=("#b8b8b4", "#d8d8d4"), glasses=("#1a1a1a",),
-                    outfit=("suit", NAVY, "#3a5a9a")),
-    "leyen": dict(skin="fair", hair="bob", hair_colors=("#e2c88e", "#f2dcaa"), mouth="smile", eye_color="#4a6a8a",
-                  brows="#a08a60", jaw=0.92, pearls=True, outfit=("open", "#c84a7a", None, "#f4f4f4")),
+                    brows="#2a2a2a", look="worried", mouth="small", outfit=("suit", NAVY, "#3a5a9a")),
+    "leyen": dict(skin="fair", hair="coif", hair_colors=("#e2c88e", "#f2dcaa"), mouth="smile", eye_color="#4a6a8a",
+                  brows="#a08a60", jaw=0.9, pearls=True, outfit=("open", "#c84a7a", None, "#f4f4f4")),
     "rutte": dict(skin="fair", hair="receding", hair_colors=("#9a8a7a", "#b0a090"), mouth="grin", eye_color="#3c5878",
-                  outfit=("suit", NAVY, "#3a5a9a")),
-    "xi": dict(skin="olive", hair="side", hair_colors=("#141414", "#2a2a2a"), wide=1.08, narrow=True,
-               outfit=("suit", CHARCOAL, "#b0141e")),
-    "kim": dict(skin="olive", hair="volume", hair_colors=("#101010", "#202020"), wide=1.14, narrow=True,
-                outfit=("mao", "#24262c")),
-    "putin": dict(skin="fair", hair="receding", hair_colors=("#a8a090", "#c0b8a8"), look="stern", narrow=True,
-                  eye_color="#4a6070", outfit=("suit", CHARCOAL, "#6a6a72")),
+                  cheeks=True, outfit=("suit", NAVY, "#3a5a9a")),
+    "xi": dict(skin="olive", hair="slick", hair_colors=("#141414", "#2e2e2e"), wide=1.14, narrow=True, mouth="smile",
+               jowls=True, outfit=("suit", CHARCOAL, "#b0141e")),
+    "kim": dict(skin="olive", hair="undercut", hair_colors=("#101010", "#262626"), wide=1.2, narrow=True,
+                jowls=True, cheeks=True, mouth="small", outfit=("mao", "#24262c")),
+    "putin": dict(skin="fair", hair="receding", hair_colors=("#c0b49a", "#d6caae"), look="stern", narrow=True,
+                  lids=True, eye_color="#4a6a8a", mouth="small", jaw=1.04, age=True, outfit=("suit", CHARCOAL, "#6a6a72")),
     "zelensky": dict(skin="light", hair="short", hair_colors=("#2a1e18", "#3a2c22"), facial="stubble",
-                     facial_color="#2a1e18", look="stern", outfit=("tee", "#4a5a2c")),
+                     facial_color="#2a1e18", look="stern", bags=True, outfit=("tee", "#4a5a2c")),
     "belousov": dict(skin="fair", hair="side", hair_colors=("#a0a0a0", "#c4c4c4"), glasses=("#2a2a2a",),
-                     outfit=("suit", CHARCOAL, "#4a4a5a")),
+                     wide=1.08, age=True, outfit=("suit", CHARCOAL, "#4a4a5a")),
     "umerov": dict(skin="olive", hair="short", hair_colors=("#1e1a18", "#2e2a26"), facial="beard",
-                   facial_color="#2a2420", outfit=("suit", CHARCOAL, "#2a3a5a")),
+                   facial_color="#2a2420", bags=True, outfit=("suit", CHARCOAL, "#2a3a5a")),
     "lukashenko": dict(skin="light", hair="combover", hair_colors=("#8a7a6a", "#a0907e"), mustache="#5a4a3a",
-                       look="stern", wide=1.06, outfit=("suit", CHARCOAL, "#3a3a3a")),
-    "netanyahu": dict(skin="fair", hair="swept", hair_colors=("#d4d4d0", "#ececea"), look="stern",
-                      outfit=("suit", NAVY, "#2a4a8a")),
-    "katz": dict(skin="light", hair="receding", hair_colors=("#9a9a96", "#b6b6b2"), wide=1.08,
+                       look="stern", wide=1.1, cheeks=True, age=True, outfit=("suit", CHARCOAL, "#3a3a3a")),
+    "netanyahu": dict(skin="fair", hair="swept", hair_colors=("#d4d4d0", "#ececea"), look="stern", jowls=True,
+                      bags=True, age=True, outfit=("suit", NAVY, "#2a4a8a")),
+    "katz": dict(skin="light", hair="receding", hair_colors=("#9a9a96", "#b6b6b2"), wide=1.14, jowls=True,
                  outfit=("open", CHARCOAL, None, "#f4f4f4")),
     "khamenei": dict(skin="light", headwear="turban black", facial="long beard", facial_color="#e6e6e2",
-                     glasses=("#3a3a3a", True), mustache="#d6d6d2", outfit=("robe", "#3a2c22")),
+                     glasses=("#3a3a3a", True), mustache="#d6d6d2", age=True, outfit=("robe", "#3a2c22")),
     "al-houthi": dict(skin="brown", headwear="turban white", facial="beard", facial_color="#141414",
-                      mustache="#141414", outfit=("robe", "#4a4a3a")),
+                      mustache="#141414", look="stern", outfit=("robe", "#4a4a3a")),
     "erdogan": dict(skin="light", hair="receding", hair_colors=("#9a968e", "#b8b4ac"), mustache="#8a867e",
-                    look="stern", outfit=("suit", NAVY, "#5a2a3a")),
-    "bin salman": dict(skin="olive", headwear="ghutra", facial="beard", facial_color="#141414", mustache="#141414",
-                       outfit=("thobe", "#5a3a1e")),
+                    look="stern", lids=True, age=True, jaw=1.06, outfit=("suit", NAVY, "#5a2a3a")),
+    "bin salman": dict(skin="olive", headwear="shemagh", facial="beard", facial_color="#141414", mustache="#141414",
+                       wide=1.06, outfit=("thobe", "#5a3a1e")),
     "al thani": dict(skin="olive", headwear="ghutra", facial="beard", facial_color="#1e1a18", mustache="#1e1a18",
-                     outfit=("thobe", "#f0f0f0")),
+                     jaw=0.96, outfit=("thobe", "#f0f0f0")),
     "al-sisi": dict(skin="olive", hair="short", hair_colors=("#3a3a3a", "#4e4e4e"), mustache="#4a4a4a",
-                    outfit=("suit", NAVY, "#1e2a5a")),
-    "orban": dict(skin="fair", hair="receding", hair_colors=("#2a2420", "#3a332e"), wide=1.1,
-                  outfit=("open", CHARCOAL, None, "#f4f4f4")),
+                    look="stern", bags=True, outfit=("suit", NAVY, "#1e2a5a")),
+    "orban": dict(skin="fair", hair="receding", hair_colors=("#2a2420", "#3a332e"), wide=1.16, jowls=True,
+                  look="stern", outfit=("open", CHARCOAL, None, "#f4f4f4")),
 }
+
 
 if __name__ == "__main__":
     out = Path(sys.argv[1])
