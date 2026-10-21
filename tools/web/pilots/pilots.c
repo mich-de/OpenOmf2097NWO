@@ -2,14 +2,19 @@
 //
 //   pilots <resources-dir> <art-dir>
 //
-// reads  MELEE.BK, VS.BK, <art-dir>/<name>.png (drawn by portraits.py)
+// reads  MELEE.BK, VS.BK, <art-dir>/<name>.pix (drawn pixel by pixel) or else <name>.png
+//        (drawn by portraits.py)
 // writes PILOTS.EXT with their pictures in their own colors (see game/utils/har_extended.c),
 //        MELEE.BK with their grid icons (animation 3) and big faces (animation 4), and
 //        VS.BK with their big faces (animation 4), at their pilot ids (0..9, 11..24). In the BK
 //        files the pictures are only approximations in the scene's colors (those palettes
 //        have no room left): the engine draws them from PILOTS.EXT.
 //
-// The art is a 240x240 portrait, transparent around the figure. Like the original pilots'
+// A .pix is the big face itself, 57x57, drawn a pixel at a time as the original faces were:
+// palette lines "c #rrggbb", then 57 rows of pixels ('.' transparent), each written out, or as
+// "lead|pixels" (lead transparent pixels first), or as "@column:pixels column:pixels ..." pieces. Its icon is cut out of it 1:1, brows to chin.
+//
+// The art is otherwise a 240x240 portrait, transparent around the figure. Like the original pilots'
 // pictures, the big face (57x57) and the icon (51x36, on black) are close-ups of the head.
 // Colors come from each file's own palette, from the entries its scene keeps fixed
 // (0x60..0xEF: not the HAR ramps below, not the blinking cursors and texts above), so the
@@ -33,6 +38,8 @@
 #define FACE_SIZE 57
 #define ICON_W 51
 #define ICON_H 36
+#define PIX_ICON_X 3 // where a .pix face's icon is cut out
+#define PIX_ICON_Y 12
 
 // in the select grid's order; pilot id 10 stays Major Kreissack
 static const char *pilot_art[] = {"trump",    "musk",     "meloni",    "macron",     "scholz",  "starmer",
@@ -62,6 +69,66 @@ static bool rgba_load(rgba *img, const char *dir, const char *name) {
     img->h = png.height;
     img->px = malloc(PNG_IMAGE_SIZE(png));
     return png_image_finish_read(&png, NULL, img->px, 0, NULL) != 0;
+}
+
+// A face drawn pixel by pixel; false when the pilot has none.
+static bool pix_load(rgba *img, const char *dir, const char *name) {
+    char fn[1024], line[1024];
+    snprintf(fn, sizeof(fn), "%s/%s.pix", dir, name);
+    FILE *in = fopen(fn, "r");
+    if(!in) {
+        return false;
+    }
+    unsigned char pal[256][3];
+    bool known[256] = {false};
+    *img = (rgba){FACE_SIZE, FACE_SIZE, calloc(FACE_SIZE * FACE_SIZE * 4, 1)};
+    int row = 0;
+    while(fgets(line, sizeof(line), in)) {
+        line[strcspn(line, "\r\n")] = 0;
+        unsigned r, g, b;
+        if(row == 0 && strlen(line) == 9 && sscanf(line + 1, " #%2x%2x%2x", &r, &g, &b) == 3) {
+            unsigned char c = line[0];
+            pal[c][0] = r, pal[c][1] = g, pal[c][2] = b;
+            known[c] = true;
+            continue;
+        }
+        if(!line[0] || row >= FACE_SIZE) {
+            continue;
+        }
+        char px[FACE_SIZE + 1];
+        memset(px, '.', FACE_SIZE);
+        px[FACE_SIZE] = 0;
+        if(line[0] == '@') {
+            for(char *piece = strtok(line + 1, " "); piece; piece = strtok(NULL, " ")) {
+                char *colon = strchr(piece, ':');
+                for(int col = colon ? atoi(piece) : FACE_SIZE, i = 0; colon && colon[1 + i] && col + i < FACE_SIZE; i++) {
+                    px[col + i] = colon[1 + i];
+                }
+            }
+        } else {
+            // "lead|pixels": that many transparent pixels first
+            char *bar = strchr(line, '|');
+            int lead = bar ? atoi(line) : 0;
+            const char *pixels = bar ? bar + 1 : line;
+            for(int i = 0; pixels[i] && lead + i < FACE_SIZE; i++) {
+                px[lead + i] = pixels[i];
+            }
+        }
+        for(int x = 0; x < FACE_SIZE; x++) {
+            unsigned char c = px[x], *o = img->px + (row * FACE_SIZE + x) * 4;
+            if(c != '.' && !known[c]) {
+                fprintf(stderr, "%s: row %d: no color '%c'\n", fn, row, c);
+                fclose(in);
+                return false;
+            }
+            if(c != '.') {
+                o[0] = pal[c][0], o[1] = pal[c][1], o[2] = pal[c][2], o[3] = 255;
+            }
+        }
+        row++;
+    }
+    fclose(in);
+    return true;
 }
 
 // Area-averaged resize of the source rectangle (sx, sy, sw, sh) to w x h, alpha weighted.
@@ -361,6 +428,11 @@ int main(int argc, char **argv) {
     rgba faces[NEW_PILOTS], icons[NEW_PILOTS];
     for(int n = 0; n < NEW_PILOTS; n++) {
         rgba art;
+        if(pix_load(&faces[n], argv[2], pilot_art[n])) {
+            // drawn at the face's size: used as it is, and the icon is a piece of it
+            icons[n] = resample(&faces[n], PIX_ICON_X, PIX_ICON_Y, ICON_W, ICON_H, ICON_W, ICON_H);
+            continue;
+        }
         if(!rgba_load(&art, argv[2], pilot_art[n])) {
             return 1;
         }

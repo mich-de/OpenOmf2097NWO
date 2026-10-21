@@ -1,0 +1,82 @@
+k #281410
+1 #783818
+2 #a85428
+3 #cc7038
+4 #e48e4e
+5 #f0ac70
+6 #f8cea0
+a #966820
+b #c49434
+c #e4ba54
+d #f4d680
+e #fcf0be
+s #10142c
+t #1e2650
+u #344078
+w #f4f4f4
+x #c8ccd6
+y #969cac
+r #780a14
+q #ba1824
+p #e84040
+o #ece6dc
+i #466ea0
+l #96463c
+h #c46858
+0|
+0|
+24|kkkkkkkkkkk
+20|kkbbcddeeedddccbbkk
+17|kkbccddeeeeeeedddcccbbbkk
+15|kabccddeeeeeeeedddcccccbbbbak
+14|kabcddeeeeeeeeeedddcccccbbbbbak
+13|kabcdddeeeeeeeeeeedddccccccbbbbbak
+12|kaabccddeeeeeeeeeeedddddcccccbbbcddkk
+12|kabbccddeeeeeeeeeeeddddcccccbbbcdddeek
+11|kabbbccddeeeeeeeeeedddddccccbbbbcddeeedk
+11|kaabbccdddeeeeeeedddddccccbbbbbccddeeddk
+11|kaabbcccdddddddddccccbbbbbbaabccddeedk
+11|kabbcccddccbbbbbbbaaaaaaabbbbbbbccdddk
+@11:kabbcccbbak 22:3333333333333333333 41:kbccdk
+@11:kabbccbbak 21:4455555555555444444333 43:kk
+@12:kabccbak 20:445555555555554444444333 44:k
+@12:kabccbak 20:3455555555555544444443332 45:k
+@11:kabcbbak 19:k3455555555555544444443332 45:k
+@11:kabcbak 18:k3 20:44ccccdddcc5555ccdddccc32 45:k
+@11:kabcbak 18:k3 20:4566666666655556666666542 45:k
+@11:kabk33223 20:456kkkkkkk6555kkkkkkk6542 45:k
+@11:kak332123 20:456koiikok5554koiikok6542 45:k
+@11:kak321123 20:4566222226555462222266532 45:k
+@11:kak321123 20:4566666666555466666666532 45:k
+@11:kak322123 20:4555555555565432444444332 45:k
+@11:kak332123 20:4555555555565432444444332 45:k
+@11:kk.k32223 20:4555555545565432444444332 45:k
+@11:.k.k33223 20:4555555445566543244444332 45:k
+@11:..k.k3223 20:4555554445566653244444332 45:k
+@11:...kk3223 20:455554443l45554l344443332 45:k
+@19:k 20:4555444443333333344433322 45:k
+@18:k 19:4 20:4554434444443444444343322 45:2 46:k
+@18:k 19:4 20:454443444lllllll444343322 45:2 46:k
+@18:k 19:4 20:45444344lhkkkkkhl44343322 45:2 46:k
+@18:k 19:4 20:454443444hhhhhhh444343322 45:2 46:k
+@18:k 19:4 20:4544443443333333443443322 45:2 46:k
+@19:k 20:4544444444444444443332222 45:k
+@20:k 21:454444444444444443332222 45:k
+@21:k 22:4544444444444443332222 44:k
+@22:k 23:45444444444443332222 43:k
+@24:kk 26:444444443332222 41:kk
+@26:kk 28:4444433222 38:kk
+@28:kkkkkkkkkk
+@9:ksssskk 16:kwwwww 22:k2211111111112222k 40:wwwwwk 46:kssssk
+@7:ksssttsk 15:kwwwwxw 22:wk22111111112222kw 40:wxwwwwk 47:ksttsssk
+@5:ksstttssk 14:kwwwwxww 22:wwk222211112222kww 40:wwxwwwwk 48:ksstttssk
+@3:ksstttttussk 15:kwwwwxw 22:wwwwwkqqpqqqkwwwww 40:wxwwwwk 47:ksuttttssk
+@2:kssttttuussk 14:kwwwwxww 22:wwwwwwkqpqqkwwwwww 40:wwxwwwwk 48:ksuuttssk
+@1:ksssttttuusstss 17:k 18:wwwwwwwwwwkqpqqkwwwwwwwwww 44:k 45:sstuuttsssk
+@0:kssssttttuussttssss 19:k 20:wwwwwwwwkqpqqqkwwwwwww 42:k 43:sssttuuttssssk
+@0:kssssttttuussttssssss 21:k 22:wwwwwkqqpqqqkwwwww 40:k 41:sssssttuuttssssk
+@0:ksssssttttuussttssssss 22:k 23:wwwwkqqpqqqkwwww 39:k 40:ssssssttuuttssssk
+@0:ksssssttttuussttsssssss 23:k 24:wwwkqqqpqqkwww 38:k 39:sssssssttuuttssssk
+@0:kssssssttttuussttsssssss 24:k 25:wwkqqqpqqkww 37:k 38:ssssssssttuuttssssk
+@0:ksssssssttttuussttsssssss 25:k 26:wkqqqpqqkw 36:k 37:sssssssssttuuttssssk
+@0:kssssssssttttuussttsssssss 26:kkqqqpqqkk 36:ssssssssssttuuttssssk
