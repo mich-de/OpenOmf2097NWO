@@ -772,10 +772,10 @@ index 3107690e..51f2b1f8 100644
  
      // Load the big faces on the top corners
 diff --git a/src/game/scenes/vs.c b/src/game/scenes/vs.c
-index fb1ef4e5..7ae3b6aa 100644
+index f1c9766c..49dbbf96 100644
 --- a/src/game/scenes/vs.c
 +++ b/src/game/scenes/vs.c
-@@ -587,7 +587,17 @@ int vs_create(scene *scene) {
+@@ -594,7 +594,17 @@ int vs_create(scene *scene) {
          object *player1_portrait = omf_calloc(1, sizeof(object));
          object_create(player1_portrait, scene->gs, vec2i_create(-10, 150), vec2f_create(0, 0));
          ani = &bk_get_info(scene->bk_data, 4)->ani;

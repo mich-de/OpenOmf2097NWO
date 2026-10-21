@@ -23,3 +23,17 @@ index ec75d52e..6c5ec2be 100644
      target->fbo_id = fbo_create(target->texture_id);
      target->tex_unit = tex_unit;
      return target;
+diff --git a/shaders/rgba.frag b/shaders/rgba.frag
+index f959256b..175bc40c 100644
+--- a/shaders/rgba.frag
++++ b/shaders/rgba.frag
+@@ -35,7 +35,8 @@ void set_color(int index) {
+ void main() {
+     vec4 texel = textureLod(framebuffer, tex_coord, 0);
+     int idx = int(texel.r * 1023.0 + 0.5);
+-    int remap_enc = int(texel.g * 255.0);
++    // rounded like the other channels: a half-float framebuffer (WebGL) stores 233/255 as 232.96/255
++    int remap_enc = int(texel.g * 255.0 + 0.5);
+     int darktint = int(texel.b * 1023.0 + 0.5);
+     int idx_add = int(texel.a * 1023.0 + 0.5);
+ 

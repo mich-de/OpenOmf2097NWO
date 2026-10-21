@@ -413,6 +413,22 @@
      }
  }
  
+--- a/src/game/objects/har.c
++++ b/src/game/objects/har.c
+@@ -2857,6 +2857,13 @@
+                move->extra_string_selector != ESS_LEG_SPEED) {
+                 // pilots store one enhancement level per original HAR; OCELOT has none
+                 int enhancements = har_id < (int)sizeof(pilot->enhancements) ? pilot->enhancements[har_id] : 0;
++#ifdef __EMSCRIPTEN__
++                // web build: outside the tournament every HAR has its tournament enhancements,
++                // all three (Shadow's longer shadows and shadow grab, Katana's extra blades, ...)
++                if(!is_tournament(obj->gs) && har_id < (int)sizeof(pilot->enhancements)) {
++                    enhancements = 3;
++                }
++#endif
+                 // if you have 1 enhancement choose extra string 2
+                 // if you have 2 enhancements choose extra string 3
+                 // if you have 3 enhancements choose extra string 4
 --- a/src/game/scenes/arena.c
 +++ b/src/game/scenes/arena.c
 @@ -1828,36 +1828,34 @@
@@ -1034,7 +1050,30 @@
                                      controller *ctrl = omf_calloc(1, sizeof(controller));
 --- a/src/game/scenes/vs.c
 +++ b/src/game/scenes/vs.c
-@@ -587,6 +587,7 @@
+@@ -20,6 +20,13 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ 
++#ifdef __EMSCRIPTEN__
++// web build: Major Kreissack fights on every difficulty, Rookie too (the original: Veteran and up)
++#define KREISSACK_MIN_DIFFICULTY 0
++#else
++#define KREISSACK_MIN_DIFFICULTY 2
++#endif
++
+ #define TEXT_GREEN 0xA7
+ #define TEXT_SHADOW_GREEN 0xA2
+ 
+@@ -455,7 +462,7 @@
+         text_draw(local->arena_name, 56 + 72, 152);
+         text_draw(local->arena_desc, 56 + 72, 153);
+     } else if(player2->pilot && player2->pilot->pilot_id == PILOT_KREISSACK &&
+-              settings_get()->gameplay.difficulty < 2) {
++              settings_get()->gameplay.difficulty < KREISSACK_MIN_DIFFICULTY) {
+         // kreissack, but not on Veteran or higher
+         text_draw(local->insults[1], 80, 165);
+     } else if(player1->chr && player2->pilot) {
+@@ -587,6 +594,7 @@
          object *player1_portrait = omf_calloc(1, sizeof(object));
          object_create(player1_portrait, scene->gs, vec2i_create(-10, 150), vec2f_create(0, 0));
          ani = &bk_get_info(scene->bk_data, 4)->ani;
@@ -1042,7 +1081,16 @@
          if(player1->chr) {
              object_set_sprite_override(player1_portrait, 1);
              sprite *sp = omf_calloc(1, sizeof(sprite));
-@@ -690,10 +691,10 @@
+@@ -680,7 +688,7 @@
+     }
+ 
+     // Insults
+-    if(player2->pilot && player2->pilot->pilot_id == PILOT_KREISSACK && settings_get()->gameplay.difficulty < 2) {
++    if(player2->pilot && player2->pilot->pilot_id == PILOT_KREISSACK && settings_get()->gameplay.difficulty < KREISSACK_MIN_DIFFICULTY) {
+         // kreissack, but not on Veteran or higher
+         local->insults[0] = NULL;
+         local->insults[1] = create_insult_text(lang_get(747), 170, 60);
+@@ -690,10 +698,10 @@
          local->insults[1] = create_insult_text(str_c(&player2->pilot->quotes[0]), 150, 60);
      } else if(player2->pilot) {
          // 1 player
@@ -1057,6 +1105,15 @@
      }
  
      // Arena
+@@ -795,7 +803,7 @@
+     local->too_pathetic_dialog.userdata = scene;
+     local->too_pathetic_dialog.clicked = vs_too_pathetic_dialog_clicked;
+ 
+-    if(player2->pilot && player2->pilot->pilot_id == PILOT_KREISSACK && settings_get()->gameplay.difficulty < 2) {
++    if(player2->pilot && player2->pilot->pilot_id == PILOT_KREISSACK && settings_get()->gameplay.difficulty < KREISSACK_MIN_DIFFICULTY) {
+         // kreissack, but not on Veteran or higher
+         dialog_show(&local->too_pathetic_dialog, 1);
+     }
 --- a/src/game/utils/har_extended.c
 +++ b/src/game/utils/har_extended.c
 @@ -1,5 +1,9 @@
